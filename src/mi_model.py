@@ -46,14 +46,16 @@ class recurrent(nn.Module):
         self.model = nn.ModuleList(self.model)
         
         
-    def forward(self, input_rep, hidden_rep=None, mask=None):
+    def forward(self, input_rep, hidden_rep=None, mask=None, predict_last_valid_hidden_state=True):
         """
             input_rep: (batch_size, seq_len, input_size)
             hidden_rep: (num_layers * num_directions, batch_size, hidden_size)
             mask: (batch_size, seq_len) of type bool. 1 if the token is valid, 0 if not.
+            predict_last_valid_hidden_state: If True, then the last valid timestep's hidden state from each instance is used for prediction. Else, all timesteps' hidden states are predicted.
         """
+        # TODO: Check if the masking works correctly to perform MI prediction
         if mask is not None:
-            assert isinstance(mask, torch.BoolTensor), "Mask should be of type BoolTensor"
+            # assert isinstance(mask, torch.BoolTensor), "Mask should be of type BoolTensor"
             assert mask.shape == torch.Size(input_rep.shape[:2]), "Mask shape should be (batch_size, seq_len)"
         
         output_rep = input_rep
@@ -66,13 +68,17 @@ class recurrent(nn.Module):
             if isinstance(layer, nn.GRU):
                 output_rep, hidden_rep = layer(output_rep) if hidden_rep is None else layer(output_rep, hidden_rep)
             elif isinstance(layer, nn.Linear):
-                pos_mask = torch.zeros(mask.shape, device = mask.device)
-                if mask is not None: # If mask is not None, then we need to take the last VALID hidden state of each sequence
-                    idx = torch.sum(mask, dim=1) - 1
-                else:
-                    idx = torch.tensor([-1]*output_rep.shape[0], device=output_rep.device)
-                pos_mask[torch.arange(output_rep.shape[0]), idx] = 1
-                output_rep = (output_rep*pos_mask.unsqueeze(-1)).sum(dim=1)
+                if predict_last_valid_hidden_state: # Only predict for last valid timestep's hidden state
+                    pos_mask = torch.zeros(mask.shape, device = mask.device)
+                    if mask is not None: # If mask is not None, then we need to take the last VALID hidden state of each sequence
+                        idx = torch.sum(mask, dim=1) - 1
+                    else: # If mask is None, then we need to take the last hidden state of each sequence
+                        idx = torch.tensor([-1]*output_rep.shape[0], device=output_rep.device)
+                    pos_mask[torch.arange(output_rep.shape[0]), idx] = 1
+                    output_rep = (output_rep*pos_mask.unsqueeze(-1)).sum(dim=1)
+                else: # Predict for all timesteps' hidden states; Zero out the hidden states using mask if available
+                    if mask is not None:
+                        output_rep = (output_rep*mask.unsqueeze(-1))
                 output = layer(output_rep)
         
         return output
