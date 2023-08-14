@@ -1,5 +1,4 @@
 """
-    author gh: @adithya8
     Utility functions for MI dataloading.
     Includes dataset creation, collation functions, Dataloader class that would be inputted to pl Trainer.
 """
@@ -22,7 +21,7 @@ def get_dataset(train_data:dict, val_data:dict, test_data:dict):
     datasetDict = DatasetDict()
     datasetDict['train'] = Dataset.from_dict(train_data)
     datasetDict['dev'] = Dataset.from_dict(val_data)
-    datasetDict['test'] = Dataset.from_dict(test_data)
+    datasetDict['test']  = Dataset.from_dict(test_data)
     
     def create_defaut_seq_num(instance):
         """
@@ -113,14 +112,13 @@ class MIDataLoaderModule(pl.LightningDataModule):
         # raise NotImplementedError("You need to implement the prepare_data() method")
         pass
 
-    def setup(self, stage=None):
+    def setup(self):
         """
             This method is used to load the data.
         """
         pass
 
     def train_dataloader(self):
-        #TODO: Call datacollator here
         if self.train_dataset is None: return None
         return DataLoader(self.train_dataset, batch_size=self.args.batch_size, shuffle=True, num_workers=self.args.num_workers, collate_fn=self.collate_fn)
 
