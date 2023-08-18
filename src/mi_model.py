@@ -32,7 +32,7 @@ class recurrent(nn.Module):
                                  dropout = self.dropout, bidirectional = self.bidirectional, batch_first=True))
         
         multiplier = (bidirectional + 1)
-        if self.num_classes<=2:
+        if self.num_classes<=2: # For binary classification or regression, we need only one output node
             self.model.append(nn.Linear(self.hidden_size*multiplier, 1))
         else:
             self.model.append(nn.Linear(self.hidden_size*multiplier, self.num_classes))
