@@ -9,19 +9,19 @@ from datasets import DatasetDict, Dataset
 import pytorch_lightning as pl
 
 
-def get_dataset(train_data:dict, val_data:dict, test_data:dict):
+def get_datasetDict(train_data:Dict, val_data:Dict, test_data:Dict):
     """
         Returns the Huggingface datasets.DatasetDict .
         Each input dictionary contains three key value pairs:
             1. embeddings: List of embeddings for each sequence of shape (1, seq_len, hidden_dim)
-            2. labels: List of labels for each sequence of shape (1, )
+            2. labels: List of labels for each sequence of shape (seq_len, )
             3. seq_num [Optional]: List of sequence numbers for each sequence of shape (seq_len, )
     """
     
     datasetDict = DatasetDict()
-    datasetDict['train'] = Dataset.from_dict(train_data)
-    datasetDict['dev'] = Dataset.from_dict(val_data)
-    datasetDict['test']  = Dataset.from_dict(test_data)
+    if train_data is not None: datasetDict['train'] = Dataset.from_dict(train_data)
+    if val_data is not None: datasetDict['dev'] = Dataset.from_dict(val_data)
+    if test_data is not None: datasetDict['test']  = Dataset.from_dict(test_data)
     
     def create_defaut_seq_num(instance):
         """
@@ -52,7 +52,7 @@ def create_mask(examples):
         for seq_num in missing_seq_nums:
             instance['embeddings'][0].insert(seq_num, instance['embeddings'][0][seq_num-1])
             instance['seq_num'].insert(seq_num, seq_num)
-        instance['labels'] = torch.tensor(instance['labels']).expand(len(instance['seq_num'])).tolist()
+        # instance['labels'] = torch.tensor(instance['labels']).expand(len(instance['seq_num'])).tolist()
         return instance
 
     def create_mask_pattern(instance):
