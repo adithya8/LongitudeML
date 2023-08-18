@@ -45,7 +45,7 @@ def create_mask(examples):
     def infill_missing_vector(instance):
         """
             Infills missing vector with the previous vector
-            TODO: Other choices include default vector, neighbour average, learnable embedding vector
+            TODO: Other choices include default vector, neighbour average, past moving average, learnable embedding vector
         """
         sorted_seq_nums = sorted(instance['seq_num'])
         missing_seq_nums = set(range(sorted_seq_nums[0], sorted_seq_nums[-1]+1)) - set(sorted_seq_nums)
@@ -87,8 +87,12 @@ def default_collate_fn(features):
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
         elif k=="labels" or k=="mask" or k=="seq_num":
             batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=0, batch_first=True)
+            if k == "mask": 
+                batch[k] = batch[k].to(torch.bool)
+            elif k == "labels": # TODO: Change for regression tasks
+                batch[k] = batch[k].to(torch.float)
         else:
-            raise NotImplementedError(f"Key {k} not supported for batching.")
+            raise Warning(f"Key {k} not supported for batching. Leaving it out of the dataloaders")
     return batch
 
 
@@ -105,31 +109,30 @@ class MIDataLoaderModule(pl.LightningDataModule):
         self.predict_dataset = datasets.pop('predict', None)
         self.collate_fn = default_collate_fn            
         
-    def prepare_data(self):
-        """
-            This method is used to download and prepare the data.
-        """
-        # raise NotImplementedError("You need to implement the prepare_data() method")
-        pass
+    # def prepare_data(self):
+    #     """
+    #         This method is used to download and prepare the data.
+    #     """
+    #     pass
 
-    def setup(self):
-        """
-            This method is used to load the data.
-        """
-        pass
+    # def setup(self):
+    #     """
+    #         This method is used to load the data.
+    #     """
+    #     pass
 
     def train_dataloader(self):
         if self.train_dataset is None: return None
-        return DataLoader(self.train_dataset, batch_size=self.args.batch_size, shuffle=True, num_workers=self.args.num_workers, collate_fn=self.collate_fn)
+        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
 
     def val_dataloader(self):
         if self.dev_dataset is None: return None
-        return DataLoader(self.dev_dataset, batch_size=self.args.batch_size, shuffle=False, num_workers=self.args.num_workers, collate_fn=self.collate_fn)
+        return DataLoader(self.dev_dataset, batch_size=self.args.eval_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
 
     def test_dataloader(self):
         if self.test_dataset is None: return None
-        return DataLoader(self.test_dataset, batch_size=self.args.batch_size, shuffle=False, num_workers=self.args.num_workers, collate_fn=self.collate_fn)
+        return DataLoader(self.test_dataset, batch_size=self.args.eval_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
 
     def predict_dataloader(self):
         if self.predict_dataset is None: return None
-        return DataLoader(self.predict_dataset, batch_size=self.args.batch_size, shuffle=False, num_workers=self.args.num_workers, collate_fn=self.collate_fn)
+        return DataLoader(self.predict_dataset, batch_size=self.args.eval_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers,
