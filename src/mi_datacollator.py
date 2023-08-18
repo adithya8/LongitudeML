@@ -1,4 +1,5 @@
 """
+    DEPRECATED SCRIPT
     Class for data collators. It won't be required for now. 
 """
 from dataclasses import dataclass
