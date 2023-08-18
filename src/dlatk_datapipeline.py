@@ -124,7 +124,9 @@ class DLATKDataGetter:
             dataset_dict['seq_num'].append([x[0] for x in seqid_msgid_mapping[seq_id]])
             dataset_dict['message_ids'].append([x[1] for x in seqid_msgid_mapping[seq_id]])
             dataset_dict['embeddings'].append([[x[2] for x in seqid_msgid_mapping[seq_id]]])
-            dataset_dict['labels'].append(outcomes_dict[seq_id])
+            # For multi instance learning, the outcome would be a list of labels for each instance (i.e., seq_num) of the sequence
+            dataset_dict['labels'].append([outcomes_dict[seq_id]]*len(seqid_msgid_mapping[seq_id]))
+            # dataset_dict['labels'].append(outcomes_dict[seq_id])
             
         return dataset_dict
 
