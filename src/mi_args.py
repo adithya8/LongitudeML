@@ -6,6 +6,8 @@ def get_data_args(parser: argparse.ArgumentParser):
     parser.add_argument("--train_file", default=None, type=str)
     parser.add_argument("--dev_file", default=None, type=str)
     parser.add_argument("--test_file", default=None, type=str)
+    parser.add_argument("--output_dir", default=None, type=str)
+    parser.add_argument("--overwrite_output_dir", action="store_true")
 
 
 def get_model_args(parser: argparse.ArgumentParser):
@@ -28,7 +30,6 @@ def get_model_args(parser: argparse.ArgumentParser):
 
 def get_training_args(parser: argparse.ArgumentParser):
     # training_args: arguments related to training
-    # TODO: Argument to control predict_last_valid_hidden_state
     parser.add_argument('--epochs', type=int, default=10,
                         help='number of epochs to train (default: -1, trains until convergence)')
     parser.add_argument("--train_batch_size", default=32, type=int, 
@@ -51,6 +52,8 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='number of workers (default: 4)')
     parser.add_argument('--seed', type=int, default=42,
                         help='random seed (default: 42)')
+    parser.add_argument('--predict_last_valid_timestep', action='store_true', default=False,
+                        help="predict from the last valid timestep's hidden state if true, else predict on all timestep's hidden states (default: False)")
     
 
 """
