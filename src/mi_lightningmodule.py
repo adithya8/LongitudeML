@@ -30,7 +30,9 @@ class MILightningModule(pl.LightningModule):
         self.step_outputs = dict(train=[], val=[], test=[])
         # Store avg loss over epochs
         self.epoch_loss = dict(train=[], val=[], test=[])
-    
+        # Store predictions and targets. Keys: preds, target since pytorch metrics use these arguments
+        self.labels = dict(train=dict(preds=[], target=[]), val=dict(preds=[], target=[]), test=dict(preds=[], target=[]))
+        # self.labels = dict(preds=dict(train=[], val=[], test=[]), target=dict(train=[], val=[], test=[]))
     
     def configure_optimizers(self) -> Any:
         return torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
@@ -52,8 +54,10 @@ class MILightningModule(pl.LightningModule):
         batch, batch_labels, ids, seq_num = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
         batch_loss = self.loss(batch_output, batch_labels)
+        # TODO: Fix step level metric logging. Train logging is probably okay, val logging shows opposite trend b/w step and epoch 
         # self.log('train_loss', batch_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels}
+        # self.logger.log_metrics({'train_loss': batch_loss}, step = self.global_step)
+        step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels, 'step': torch.tensor([self.global_step])}
         if ids is not None: step_output.update({'id': ids})
         self.step_outputs['train'].append(step_output) 
         return step_output
@@ -64,7 +68,8 @@ class MILightningModule(pl.LightningModule):
         batch_output = self.model(**batch)
         batch_loss = self.loss(batch_output, batch_labels)
         # self.log('val_loss', batch_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels}
+        # self.logger.log_metrics({'val_loss': batch_loss}, step=self.global_step)
+        step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels, 'step': torch.tensor([self.global_step])}
         if ids is not None: step_output.update({'id': ids})
         self.step_outputs['val'].append(step_output) 
         return step_output
@@ -88,7 +93,10 @@ class MILightningModule(pl.LightningModule):
 
 
     def process_epoch_end(self, step_outputs) -> Dict:
-        
+        """
+            Process the step outputs and return the epoch outputs concatenated across all steps
+            Stores loss, predictions and labels as (num_steps, 1)
+        """
         first = step_outputs[0]
         keys = first.keys()
         cat_outputs = dict([(k,[]) for k in keys])
@@ -100,40 +108,43 @@ class MILightningModule(pl.LightningModule):
             cat_outputs[k] = torch.cat(cat_outputs[k], dim=0)
             
         return cat_outputs 
-             
-             
-    #TODO: Log the loss values for all batches for viz
+         
+
+    def save_outputs(self, process:str) -> None:
+        cat_outputs = self.process_epoch_end(self.step_outputs[process])
+        if 'loss' in cat_outputs:
+            avg_loss = torch.mean(cat_outputs['loss']) 
+            self.epoch_loss[process].append(avg_loss.item())
+            print ("{} loss epoch {}: {}".format(process, self.current_epoch, avg_loss))
+        if 'pred' in cat_outputs:
+            self.labels[process]['preds'].append(cat_outputs['pred'])
+        if 'labels' in cat_outputs:
+            self.labels[process]['target'].append(cat_outputs['labels'])
+            
+
     def on_train_epoch_end(self) -> None:
         if self.global_rank==0:
-            cat_outputs = self.process_epoch_end(self.step_outputs['train'])
-            if 'loss' in cat_outputs:
-                avg_loss = torch.mean(cat_outputs['loss']) 
-                self.log('train_epoch_loss', avg_loss, on_epoch=True, prog_bar=True, logger=True)
-                self.epoch_loss['train'].append(avg_loss.item())
+            self.save_outputs(process="train")
+            self.logger.log_metrics({'train_epoch_loss': self.epoch_loss['train'][-1]}, step=self.current_epoch)
+            # self.log('train_epoch_loss', self.epoch_loss['train'][-1], on_epoch=True, prog_bar=True, logger=True)
             self.step_outputs['train'].clear()
 
     
     def on_validation_epoch_end(self) -> None:
         if self.global_rank==0:
-            cat_outputs = self.process_epoch_end(self.step_outputs['val'])
-            if 'loss' in cat_outputs:
-                avg_loss = torch.mean(cat_outputs['loss']) 
-                self.log('val_epoch_loss', avg_loss, on_epoch=True, prog_bar=True, logger=True)
-                self.epoch_loss['val'].append(avg_loss.item())
+            self.save_outputs(process="val")
+            self.logger.log_metrics({'val_epoch_loss': self.epoch_loss['val'][-1]}, step=self.current_epoch)
+            # self.log('val_epoch_loss', self.epoch_loss['val'][-1], on_epoch=True, prog_bar=True, logger=True)
             self.step_outputs['val'].clear()
             
     
-    def on_test_epoch_end(self, outputs) -> None:
+    def on_test_epoch_end(self) -> None:
         if self.global_rank==0:
-            cat_outputs = self.process_epoch_end(self.step_outputs['test'])
-            if 'loss' in cat_outputs:
-                avg_loss = torch.mean(cat_outputs['loss']) 
-                self.log('test_epoch_loss', avg_loss, on_epoch=True, prog_bar=True, logger=True)
-                self.epoch_loss['test'].append(avg_loss.item())
+            self.save_outputs(process="test")
+            self.logger.log_metrics({'test_epoch_loss': self.epoch_loss['test'][-1]}, step=self.current_epoch)
+            # self.log('test_epoch_loss', self.epoch_loss['test'][-1], on_epoch=True, prog_bar=True, logger=True)
             self.step_outputs['test'].clear()
     
     
-    # def predict_epoch_end(self, outputs) -> None:
-    #     if self.global_rank==0:
-    #         cat_outputs = self.process_epoch_end(outputs)
+    #TODO: Implement on_predict_epoch_end/predict_epoch_end
     
