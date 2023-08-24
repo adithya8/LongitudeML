@@ -8,7 +8,8 @@ from dlatk.outcomeGetter import OutcomeGetter
 class DLATKDataGetter:
     """
         Class to process the DLATK features table and outcome table into data dictionary
-        Input:
+        Input
+        -----
             db: str=field(metadata={'help': 'database name'}, default="EMI")
             msg_table: str=field(metadata={'help': 'table name'})
             messageid_field: str=field(metadata={'help': 'message id field name'}, default='message_id')
@@ -19,6 +20,13 @@ class DLATKDataGetter:
             feature_table: str=field(metadata={'help': 'feature table name'})
             outcome_table: str=field(metadata={'help': 'outcome table name'})
             outcome_field: str=field(metadata={'help': 'outcome field name'})
+        
+        Usage
+        -----
+            dlatk_data_getter = DLATKDataGetter(msg_table='emi_2016_2017', feature_table='emi_2016_2017_features', outcome_table='emi_2016_2017_outcomes', outcome_field='outcome')
+            dataset_dict = dlatk_data_getter.combine_features_and_outcomes()
+            dataset_dict = dlatk_data_getter.train_test_split(dataset_dict, test_ratio=0.15)
+        
     """
     msg_table: str=field(metadata={'help': 'table name'})
     feature_table: str=field(metadata={'help': 'feature table name'})
@@ -64,7 +72,7 @@ class DLATKDataGetter:
         """
         fg = FeatureGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=self.args.messageid_field, featureTable=self.args.feature_table)
         #TODO: Add group_freq_thresh
-        #TODO: Change the query below
+        #TODO: Change the query below to be more generic
         sql = fg.qb.create_select_query(self.args.msg_table).set_fields(['message_id', 'seq_id', 'day_number'])
         print (sql.toString())
         
@@ -133,8 +141,10 @@ class DLATKDataGetter:
     
     def train_test_split(self, dataset_dict:dict, test_ratio:float=0.2) -> dict:
         """
-            Split the dataset into train and test
+            Split the dataset into train and test based on the test_ratio
         """
+        assert test_ratio > 0 and test_ratio < 1, "test_ratio must be between 0 and 1"
+        
         all_idx = list(range(len(dataset_dict['embeddings'])))
         train_idx = random.sample(all_idx, int((1-test_ratio)*len(all_idx)))
         test_idx = list(set(all_idx) - set(train_idx))
