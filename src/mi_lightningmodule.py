@@ -1,4 +1,4 @@
-from typing import Any, Optional, Dict
+from typing import Any, Dict, Optional
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
@@ -43,53 +43,52 @@ class MILightningModule(pl.LightningModule):
             Unpack the batch and return the model inputs separated from the other batch tensors
         """
         batch_labels = batch.pop('labels', None)
-        ids = batch.pop('id', None)
-        seq_num = batch.pop('seq_num', None)
-        predict_last_valid_hidden_state = batch.pop('predict_last_valid_hidden_state', False)
-        batch.update({'predict_last_valid_hidden_state': predict_last_valid_hidden_state})
-        return batch, batch_labels, ids, seq_num
+        query_id = batch.pop('query_ids', None)
+        seq_id = batch.pop('seq_idx', None)
+        time_idx = batch.pop('time_ids', None)
+        return batch, batch_labels, seq_id, time_idx
     
     
     def training_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        batch, batch_labels, ids, seq_num = self.unpack_batch_model_inputs(batch)
+        batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
         batch_loss = self.loss(batch_output, batch_labels)
         # TODO: Fix step level metric logging. Train logging is probably okay, val logging shows opposite trend b/w step and epoch 
         # self.log('train_loss', batch_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         # self.logger.log_metrics({'train_loss': batch_loss}, step = self.global_step)
         step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels, 'step': torch.tensor([self.global_step])}
-        if ids is not None: step_output.update({'id': ids})
+        if seq_id is not None: step_output.update({'seq_id': seq_id})
         self.step_outputs['train'].append(step_output) 
         return step_output
     
     
     def validation_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        batch, batch_labels, ids, seq_num = self.unpack_batch_model_inputs(batch)
+        batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
         batch_loss = self.loss(batch_output, batch_labels)
         # self.log('val_loss', batch_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         # self.logger.log_metrics({'val_loss': batch_loss}, step=self.global_step)
         step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels, 'step': torch.tensor([self.global_step])}
-        if ids is not None: step_output.update({'id': ids})
+        if seq_id is not None: step_output.update({'seq_id': seq_id})
         self.step_outputs['val'].append(step_output) 
         return step_output
     
     
     def test_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        batch, batch_labels, ids, seq_num = self.unpack_batch_model_inputs(batch)
+        batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
         batch_loss = self.loss(batch_output, batch_labels)
         # self.log('test_loss', batch_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels}
-        if ids is not None: step_output.update({'id': ids})
+        if seq_id is not None: step_output.update({'seq_id': seq_id})
         self.step_outputs['test'].append(step_output) 
         return step_output
 
 
     def predict_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        batch, batch_labels, ids, seq_num = self.unpack_batch_model_inputs(batch)
+        batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
-        return {'pred': batch_output, 'labels': batch_labels, 'id': ids}
+        return {'pred': batch_output, 'labels': batch_labels, 'seq_id': seq_id}
 
 
     def process_epoch_end(self, step_outputs) -> Dict:
