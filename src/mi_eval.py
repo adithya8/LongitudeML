@@ -26,9 +26,9 @@ class MI_Eval:
         """
             Calculate regression metrics
         """
-        seq_num = kwargs.pop('seq_num', None)
-        if seq_num is None:
-            # create a seq_num tensor range(len(target))*batch_size
+        time_ids = kwargs.pop('time_ids', None)
+        if time_ids is None:
+            # create a time_ids tensor range(len(target))*batch_size
             pass
         
         
