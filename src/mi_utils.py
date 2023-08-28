@@ -26,7 +26,9 @@ def get_logger(logger_name:str, **kwargs):
                 key_dict = json.load(open(os.path.join(os.path.expanduser('~'), '.comet.key'), 'r'))
                 kwargs['api_key'] = key_dict['api_key']
             else:
-                raise Warning('Comet API key not provided. Using default logger.')
+                print ('Comet API key not provided. Using default logger.')
+                return None
         return CometLogger(**kwargs)
     else:
-        raise Warning(f'Logger {logger_name} not implemented. Using default logger.')
+        print (f'Logger {logger_name} not implemented. Using default logger.')
+        return None
