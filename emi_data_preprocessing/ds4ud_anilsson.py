@@ -1,7 +1,6 @@
 import os
 import argparse
 import pickle
-from pprint import pprint
 from utils import add_to_path
 
 add_to_path(__file__)
