@@ -3,8 +3,9 @@ import argparse
 def get_data_args(parser: argparse.ArgumentParser):
     # data_args: arguments related to data
     parser.add_argument("--data_dir", default=None, type=str)
+    parser.add_argument("--data_file", default=None, type=str)
     parser.add_argument("--train_file", default=None, type=str)
-    parser.add_argument("--dev_file", default=None, type=str)
+    parser.add_argument("--val_file", default=None, type=str)
     parser.add_argument("--test_file", default=None, type=str)
     parser.add_argument("--output_dir", default=None, type=str)
     parser.add_argument("--overwrite_output_dir", action="store_true")
@@ -30,11 +31,15 @@ def get_model_args(parser: argparse.ArgumentParser):
 
 def get_training_args(parser: argparse.ArgumentParser):
     # training_args: arguments related to training
+    parser.add_argument('--do_train', action='store_true', default=False,
+                        help='do train (default: False)')
+    parser.add_argument('--do_test', action='store_true', default=False,
+                        help='do Test (default: False)')
     parser.add_argument('--epochs', type=int, default=10,
                         help='number of epochs to train (default: -1, trains until convergence)')
     parser.add_argument("--train_batch_size", default=32, type=int, 
                         help="Batch size for training.")
-    parser.add_argument("--eval_batch_size", default=64, type=int,
+    parser.add_argument("--val_batch_size", default=64, type=int,
                         help="Batch size for evaluation.")
     parser.add_argument('--cross_entropy_class_weight', default=None, nargs='+', type=float,
                         help='class weight for cross entropy loss (default: None)')
@@ -54,7 +59,20 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='random seed (default: 42)')
     parser.add_argument('--predict_last_valid_timestep', action='store_true', default=False,
                         help="predict from the last valid timestep's hidden state if true, else predict on all timestep's hidden states (default: False)")
-    
+
+
+def get_comet_args(parser: argparse.ArgumentParser):
+    parser.add_argument('--api_key', type=str, default="~/.comet.key",
+                        help='comet api key (default: ~/.comet.key)')
+    parser.add_argument('--workspace', type=str, default=None,
+                        help='comet workspace (default: None)')
+    parser.add_argument('--project_name', type=str, default=None,
+                        help='comet project name (default: None)')
+    parser.add_argument('--experiment_name', type=str, default=None,
+                        help='comet experiment name (default: None)')
+    parser.add_argument('--comet_save_dir', type=str, default="./lightning_logs/",
+                        help='comet save directory (default: ./lightning_logs/)')
+
 
 """
 def get_eval_args(parser: argparse.ArgumentParser):
@@ -83,12 +101,18 @@ def catch_jupyter_args(parser):
     parser.add_argument('--Session.key')
 
 
-def get_default_args(jupyter=False):    
+def get_default_args(jupyter=False):
+    """
+        Get default arguments for Model arguments, data arguments, training arguments and comet args.
+        ---
+        Returns a Namespace object with the default arguments.
+    """
     parser = argparse.ArgumentParser(description='PyTorch Template')
     if jupyter:
         catch_jupyter_args(parser)
     get_data_args(parser)
     get_model_args(parser)
     get_training_args(parser)
+    get_comet_args(parser)
     #get_eval_args(parser)
     return parser.parse_args()
