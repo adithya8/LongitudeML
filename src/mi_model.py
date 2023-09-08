@@ -49,7 +49,7 @@ class recurrent(nn.Module):
         """
         if mask is not None:
             # assert isinstance(mask, torch.BoolTensor), "Mask should be of type BoolTensor" #TODO: This line throws assertion error although the mask is of type BoolTensor
-            assert mask.shape == torch.Size(embeddings.shape[:2]), "Mask shape should be (batch_size, seq_len)"
+            assert mask.shape == torch.Size(embeddings.shape[:2]), "Mask shape should be (batch_size, seq_len). Got {} for mask and {} for embeddings".format(mask.shape, embeddings.shape)
         
         output_rep = embeddings
         for layer in self.model:
@@ -70,7 +70,7 @@ class recurrent(nn.Module):
                     pos_mask[torch.arange(output_rep.shape[0]), idx] = 1
                     output_rep = (output_rep*pos_mask.unsqueeze(-1)).sum(dim=1)
                 else: # Predict for all timesteps' hidden states; Zero out the hidden states using mask if available
-                        if mask is not None: output_rep = (output_rep*mask.unsqueeze(-1))  
+                    if mask is not None: output_rep = (output_rep*mask.unsqueeze(-1))  
                 output = layer(output_rep).squeeze(-1)
                 
         
