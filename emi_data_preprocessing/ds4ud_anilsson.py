@@ -29,7 +29,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     dlatk_dataGetter = DLATKDataGetter(**INPUT_DICT[args.outcome_field])
-    dataDict = dlatk_dataGetter.combine_features_and_outcomes()
+    dataDict, longtype_encoder = dlatk_dataGetter.combine_features_and_outcomes()
     if args.test_ratio > 0:
         dataDict = dlatk_dataGetter.train_test_split(dataDict, test_ratio=args.test_ratio)
     
@@ -37,4 +37,6 @@ if __name__ == '__main__':
         print(f"File {args.save_filepath} already exists. Overwriting...")
     with open(args.save_filepath, 'wb') as f:
         pickle.dump(dataDict, f)
-    
+    encoder_filepath = args.save_filepath.replace('.pkl', '_id_encoder.pkl')
+    with open(encoder_filepath, 'wb') as f:
+        pickle.dump(longtype_encoder, f)
