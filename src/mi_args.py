@@ -15,15 +15,15 @@ def get_model_args(parser: argparse.ArgumentParser):
     # model_args: arguments related to model
     parser.add_argument('--model', type=str, default='gru',
                         help='model type (default: gru)')
-    parser.add_argument('--input_size', type=int, default=8, #required=True, 
+    parser.add_argument('--input_size', type=int, default=768, #required=True, 
                         help='size of the embeddings')
-    parser.add_argument('--num_classes', type=int, default=2, #required=True,
+    parser.add_argument('--num_classes', type=int, default=1, #required=True,
                         help='number of classes (default: 2)')
     parser.add_argument('--hidden_size', type=int, default=128, #required=True,
                         help='hidden size (default: 128)')
     parser.add_argument('--num_layers', type=int, default=1,
                         help='number of layers (default: 1)')
-    parser.add_argument('--dropout', type=float, default=0.0,
+    parser.add_argument('--dropout', type=float, default=0.15,
                         help='dropout (default: 0.0)')
     parser.add_argument('--bidirectional', action='store_true', default=False,
                         help='bidirectional (default: False)')
@@ -59,6 +59,7 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='random seed (default: 42)')
     parser.add_argument('--predict_last_valid_timestep', action='store_true', default=False,
                         help="predict from the last valid timestep's hidden state if true, else predict on all timestep's hidden states (default: False)")
+    #TODO: Add early stopping
 
 
 def get_comet_args(parser: argparse.ArgumentParser):
@@ -70,8 +71,8 @@ def get_comet_args(parser: argparse.ArgumentParser):
                         help='comet project name (default: None)')
     parser.add_argument('--experiment_name', type=str, default=None,
                         help='comet experiment name (default: None)')
-    parser.add_argument('--comet_save_dir', type=str, default="./lightning_logs/",
-                        help='comet save directory (default: ./lightning_logs/)')
+    # parser.add_argument('--comet_save_dir', type=str, default="./lightning_logs/",
+    #                     help='comet save directory (default: ./lightning_logs/)')
 
 
 """
