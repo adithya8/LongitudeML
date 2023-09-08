@@ -24,7 +24,10 @@ class MI_Eval:
     
     def regression_metrics(self, preds:torch.Tensor, target:torch.Tensor, **kwargs) -> Any:
         """
-            Calculate regression metrics
+            Calculate regression metrics (MSE, SMAPE, Pearson) for three cases: 
+                1. Last time step only
+                2. Half of the time steps
+                3. First time step only
         """
         time_ids = kwargs.pop('time_ids', None)
         if time_ids is None:
@@ -32,8 +35,50 @@ class MI_Eval:
             pass
         
         
-    
-    
     def classification_metrics(self, preds:torch.Tensor, target:torch.Tensor, **kwargs) -> Any:
+        """
+            Calculate classification metrics (Accuracy, F1, Precision, Recall) for three cases:
+                1. Last time step only
+                2. Half of the time steps
+                3. First time step only
+        """
         pass
     
+    
+    
+def mi_mse(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:torch.Tensor=None):
+    """
+        Calculate MSE loss for Multi Instance Learning. 
+        Computes squared loss between input and target for the valid timesteps denoted by the mask. 
+    """
+    if mask is None:
+        mask = torch.ones(input.shape, device=input.device) 
+    
+    if reduction == "mean":
+        loss = torch.sum(torch.square(input - target)*mask)/torch.sum(mask)
+    elif reduction == "sum":
+        loss = torch.sum(torch.square(input - target)*mask)
+    elif reduction == "none" or reduction is None:
+        loss = torch.square(input - target)*mask
+    
+    return loss
+
+
+def mi_smape(input: torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:torch.Tensor=None):
+    """
+        Calculate SMAPE loss for Multi Instance Learning. 
+        Computes SMAPE loss between input and target for the valid timesteps denoted by the mask. 
+    """
+    if mask is None:
+        mask = torch.ones(input.shape, device=input.device) 
+    
+    epsilon = 1e-8
+    
+    if reduction == "mean":
+        loss = torch.sum(torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask)/torch.sum(mask)
+    elif reduction == "sum":
+        loss = torch.sum(torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask)
+    elif reduction == "none" or reduction is None:
+        loss = torch.abs(input - target)/(torch.abs(input) + torch.abs(target))*mask
+    
+    return loss
