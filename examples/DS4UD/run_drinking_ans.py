@@ -17,7 +17,7 @@ if __name__ == '__main__':
     args = get_default_args()
 
     # Get the logger and log the hyperparameters
-    logger = get_logger('comet', workspace=args.workspace, project_name=args.project_name, experiment_name=args.experiment_name, save_dir=args.comet_save_dir)
+    logger = get_logger('comet', workspace=args.workspace, project_name=args.project_name, experiment_name=args.experiment_name, save_dir=args.output_dir)
     logger.log_hyperparams(args.__dict__)
 
     # Set the seed for reproducibility
@@ -73,7 +73,6 @@ if __name__ == '__main__':
     
     # Get the dataloader module
     dataloaderModule = MIDataLoaderModule(args, datasetDict)
-    import pdb; pdb.set_trace()
     
     if not os.path.exists(args.output_dir):
         print ('Creating output directory: {}'.format(args.output_dir))
