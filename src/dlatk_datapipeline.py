@@ -1,6 +1,7 @@
 import argparse
 from dataclasses import dataclass, field
 import random
+from typing import List
 from dlatk.featureGetter import FeatureGetter
 from dlatk.outcomeGetter import OutcomeGetter
 
@@ -49,8 +50,8 @@ class DLATKDataGetter:
         assert self.outcome_field is not None, "outcome_field must be specified"
         
         self.args = argparse.Namespace(**self.__dict__)
-    
-    
+
+
     def get_features(self) -> dict:
         """
             Get query_id and embeddings from the feature table
@@ -72,8 +73,8 @@ class DLATKDataGetter:
                 gns_dict[query_id].append(gns[0][query_id][feat])
                 
         return gns_dict
-    
-    
+
+
     def get_qryid_seqid_timeids_mapping(self):
         """
             Get a mapping of sequence ids, query ids and its time idx. 
@@ -91,10 +92,23 @@ class DLATKDataGetter:
                     query_idx1: time_idx1,
                     query_idx2: time_idx2,
                     ...
+                }
+                longtype_encoder: A dictionary of the following format:
+                {
+                    qryid_mappings: {
+                        query_idx1: long_query_idx1,
+                        query_idx2: long_query_idx2,
+                        ...
+                    },
+                    seqid_mappings: {
+                        seq_idx1: long_seq_idx1,
+                        seq_idx2: long_seq_idx2,
+                        ...
+                    }
                 } 
         """
         fg = FeatureGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=self.args.messageid_field, featureTable=self.args.feature_table)
-        #TODO: Add group_freq_thresh
+        #TODO: Add group_freq_thresh/ min query per sequence
         #TODO: Add where to filter to only those sequences that have features
         #TODO: Change the query below to be more generic. This works only for DS4UD anilsson data
         sql = fg.qb.create_select_query(self.args.msg_table).set_fields(['message_id', 'seq_id', 'day_number'])
@@ -105,8 +119,20 @@ class DLATKDataGetter:
             if qry_id not in qryid_seqid_mapping: qryid_seqid_mapping[qry_id] = seq_id
             if qry_id not in qryid_timeids_mapping: qryid_timeids_mapping[qry_id] = time_idx
         
+        # Store the original query_id/seq_id mapping with corresponding long datatype query_id/seq_id. This step is necessary since strings can't be parsed into torch tensors directly.
+        longtype_encoder = dict(qryid_mappings=dict(), seqid_mappings=dict())
+        for qry_id, seq_id in qryid_seqid_mapping.items():
+            if isinstance(qry_id, str):
+                longtype_encoder['qryid_mappings'][qry_id] = qry_id.isdigit() if qry_id.isdigit() else len(longtype_encoder['qryid_mappings']) + 1
+            else:
+                longtype_encoder['qryid_mappings'][qry_id] = qry_id
+            if isinstance(seq_id, str):
+                longtype_encoder['seqid_mappings'][seq_id] = seq_id.isdigit() if seq_id.isdigit() else len(longtype_encoder['seqid_mappings']) + 1
+            else:
+                longtype_encoder['seqid_mappings'][seq_id] = seq_id
+                
         print (f"Number of messages: {len(qryid_seqid_mapping)}")
-        return qryid_seqid_mapping, qryid_timeids_mapping
+        return qryid_seqid_mapping, qryid_timeids_mapping, longtype_encoder
 
 
     def get_outcomes(self, where='') -> dict:
@@ -147,31 +173,34 @@ class DLATKDataGetter:
         
         # TODO: Get outcomes only for the seqids with features
         outcomes_dict = self.get_outcomes()
-        qryid_seqid_mapping, qryid_timeids_mapping = self.get_qryid_seqid_timeids_mapping()
+        qryid_seqid_mapping, qryid_timeids_mapping, longtype_encoder = self.get_qryid_seqid_timeids_mapping()
         
-        seqid_qryid_mapping = dict() # maps seq_id to a list of (time_idx, qry_id, emb)
+        # maps seq_id to a list of (time_idx, qry_id, emb). Example - seq_id1: [(time_idx1_1, qry_id1, emb_list1), (time_idx1_2, qry_id2, emb_list2) ...]
+        seqid_qryid_mapping = dict() 
         for qry_id, seq_id in qryid_seqid_mapping.items():
-            if seq_id not in seqid_qryid_mapping: seqid_qryid_mapping[seq_id] = []
-            temp = (qryid_timeids_mapping[qry_id], qry_id, gns_dict[qry_id])
-            seqid_qryid_mapping[seq_id].append(temp)
+            qry_id_long, seq_id_long = longtype_encoder['qryid_mappings'][qry_id], longtype_encoder['seqid_mappings'][seq_id]
+            if seq_id_long not in seqid_qryid_mapping: seqid_qryid_mapping[seq_id_long] = []
+            temp = (qryid_timeids_mapping[qry_id], qry_id_long, gns_dict[qry_id])
+            seqid_qryid_mapping[seq_id_long].append(temp)
         
         # Sort the qryids by time_idx for each seq_id
-        for seq_id, qryid_timeids_list in seqid_qryid_mapping.items():
-            seqid_qryid_mapping[seq_id] = sorted(qryid_timeids_list, key=lambda x: x[0])
+        for seq_id_long, qryid_timeids_list in seqid_qryid_mapping.items():
+            seqid_qryid_mapping[seq_id_long] = sorted(qryid_timeids_list, key=lambda x: x[0])
         
         seqids = set(qryid_seqid_mapping.values())
         dataset_dict = dict(seq_idx=[], time_ids=[], embeddings=[], labels=[], query_ids=[])
         
         for seq_id in seqids:
-            dataset_dict['seq_idx'].append(seq_id)
-            dataset_dict['time_ids'].append([x[0] for x in seqid_qryid_mapping[seq_id]])
-            dataset_dict['query_ids'].append([x[1] for x in seqid_qryid_mapping[seq_id]])
-            dataset_dict['embeddings'].append([[x[2] for x in seqid_qryid_mapping[seq_id]]])
+            seq_id_long = longtype_encoder['seqid_mappings'][seq_id]
+            dataset_dict['seq_idx'].append(seq_id_long)
+            dataset_dict['time_ids'].append([x[0] for x in seqid_qryid_mapping[seq_id_long]])
+            dataset_dict['query_ids'].append([x[1] for x in seqid_qryid_mapping[seq_id_long]])
+            dataset_dict['embeddings'].append([[x[2] for x in seqid_qryid_mapping[seq_id_long]]])
             # For multi instance learning, the outcome would be a list of labels for each instance (i.e., time_idx) of the sequence
-            dataset_dict['labels'].append([outcomes_dict[seq_id]]*len(seqid_qryid_mapping[seq_id]))
+            dataset_dict['labels'].append([outcomes_dict[seq_id]]*len(seqid_qryid_mapping[seq_id_long]))
             # dataset_dict['labels'].append(outcomes_dict[seq_id])
             
-        return dataset_dict
+        return dataset_dict, longtype_encoder
 
     
     def train_test_split(self, dataset_dict:dict, test_ratio:float=0.2) -> dict:
