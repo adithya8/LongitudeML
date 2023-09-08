@@ -23,16 +23,16 @@ def get_datasetDict(train_data:Dict, val_data:Dict, test_data:Dict):
     if val_data is not None: datasetDict['dev'] = Dataset.from_dict(val_data)
     if test_data is not None: datasetDict['test']  = Dataset.from_dict(test_data)
     
-    def create_defaut_time_idx(instance):
+    def create_defaut_time_ids(instance):
         """
-            Creates a default time_idx for the instance assuming no breaks in timestep
+            Creates a default time_ids for the instance assuming no breaks in timestep
         """
-        instance['time_idx'] = list(range(len(instance['embeddings'][0])))
+        instance['time_ids'] = list(range(len(instance['embeddings'][0])))
         return instance
     
     for dataset_name in datasetDict:
-        if 'time_idx' not in datasetDict[dataset_name].features:
-            datasetDict[dataset_name] = datasetDict[dataset_name].map(create_defaut_time_idx)
+        if 'time_ids' not in datasetDict[dataset_name].features:
+            datasetDict[dataset_name] = datasetDict[dataset_name].map(create_defaut_time_ids)
         
     return datasetDict
 
@@ -47,30 +47,38 @@ def create_mask(examples):
             Infills missing vector with the previous vector
             TODO: Other choices include default vector, neighbour average, past moving average, learnable embedding vector
         """
-        sorted_time_idxs = sorted(instance['time_idx'])
-        missing_time_idxs = set(range(sorted_time_idxs[0], sorted_time_idxs[-1]+1)) - set(sorted_time_idxs)
-        min_time_idx = sorted_time_idxs[0]
-        for time_idx in sorted(missing_time_idxs):
-            instance['embeddings'][0].insert(time_idx, instance['embeddings'][0][time_idx-min_time_idx])
-            instance['time_idx'].insert(time_idx, time_idx-min_time_idx)
+        sorted_time_ids = sorted(instance['time_ids'])
+        missing_time_ids = set(range(sorted_time_ids[0], sorted_time_ids[-1]+1)) - set(sorted_time_ids)
+        min_time_id = sorted_time_ids[0]
+        original_time_id_mask = [1]*len(instance['time_ids'])
+        for time_id in sorted(missing_time_ids):
+            # TODO: Following mask logic has to be changed in case we are going for last valid timestep prediction. 
+            # The current logic in modelling uses the number of 1's in the mask to determine the last valid timestep.
+            original_time_id_mask.insert(time_id-min_time_id, 0) # inserting 0 at the missing time_id
+            instance['time_ids'].insert(time_id-min_time_id, time_id)
+            instance['query_ids'].insert(time_id-min_time_id, instance['query_ids'][time_id-min_time_id-1])
+            instance['embeddings'][0].insert(time_id-min_time_id, instance['embeddings'][0][time_id-min_time_id-1])
+            instance['labels'].insert(time_id-min_time_id, instance['labels'][time_id-min_time_id-1])
         # instance['labels'] = torch.tensor(instance['labels']).expand(len(instance['time_idx'])).tolist()
+        instance['mask'] = original_time_id_mask
         return instance
 
     def create_mask_pattern(instance):
         """
             Creates a mask pattern for the sequence
         """
-        instance['mask'] = [1]*len(instance['time_idx'])# [1 if time_idx in instance['time_idx'] else 0 for time_idx in range(max(instance['time_idx'])+1)]
+        if 'mask' not in instance: 
+            instance['mask'] = [1]*len(instance['time_ids'])# [1 if time_idx in instance['time_idx'] else 0 for time_idx in range(max(instance['time_idx'])+1)]
         return instance
     
     examples = infill_missing_vector(examples)
     examples = create_mask_pattern(examples)
     
-    return examples  
+    return examples
 
 
-def default_collate_fn(features, predict_last_valid_timestep=False):
-    # Features dict have embeddings, label, time_ids of single sequence
+def default_collate_fn(features, predict_last_valid_timestep):
+    # Features dict have embeddings, labels, time_ids, query_ids of single sequence (referenced by seq_idx)
     # predict_last_valid_timestep: True/False
     # Embeddings shape: (1, seq_len, hidden_dim)
     # Labels shape: (seq_len, )
@@ -80,7 +88,7 @@ def default_collate_fn(features, predict_last_valid_timestep=False):
     # seq_id shape: []
     first = features[0]
     batch = {"predict_last_valid_hidden_state": predict_last_valid_timestep }
-    max_seq_len = max([feat['time_idx'][-1] for feat in features])+1
+    max_seq_len = max([len(feat['time_ids']) for feat in features])#+1
     for k, _ in first.items():
         if k == "embeddings":
             for feat in features:
@@ -93,7 +101,7 @@ def default_collate_fn(features, predict_last_valid_timestep=False):
             batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=0, batch_first=True)
             if k == "mask": 
                 batch[k] = batch[k].to(torch.bool)
-            elif k == "labels": # TODO: Change for regression tasks
+            elif k == "labels": 
                 batch[k] = batch[k].to(torch.float)
             elif k == "time_ids":
                 batch[k] = batch[k].to(torch.long)
@@ -117,6 +125,7 @@ class MIDataLoaderModule(pl.LightningDataModule):
         self.dev_dataset = datasets.pop('dev', None)
         self.test_dataset = datasets.pop('test', None)
         self.predict_dataset = datasets.pop('predict', None)
+        print ('Predict Last Valid Timestep set to {}'.format(data_args.predict_last_valid_timestep))
         self.collate_fn = lambda b: default_collate_fn(b, data_args.predict_last_valid_timestep) # NOTE: Either change to class method or use partial in case more args are needed        
         
     # def prepare_data(self):
