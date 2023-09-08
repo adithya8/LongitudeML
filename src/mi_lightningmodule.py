@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 
 from .mi_model import recurrent
-
+from .mi_eval import mi_mse, mi_smape
 
 class MILightningModule(pl.LightningModule):
     def __init__(self, args):
@@ -17,12 +17,14 @@ class MILightningModule(pl.LightningModule):
         self.model = recurrent(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, \
                                  num_layers = args.num_layers, dropout = args.dropout, bidirectional = args.bidirectional)
         
+        self.metrics = {}
         if args.num_classes>2:
             self.loss = nn.CrossEntropyLoss(weight=args.cross_entropy_class_weight)
         elif args.num_classes==2:
             self.loss = nn.BCEWithLogitsLoss()
         elif args.num_classes==1:
-            self.loss = nn.MSELoss()
+            self.loss = mi_mse #nn.MSELoss()
+            self.metrics = {'smape': mi_smape}
         else:
             raise ValueError("Invalid number of classes")
 
@@ -49,15 +51,25 @@ class MILightningModule(pl.LightningModule):
         return batch, batch_labels, seq_id, time_idx
     
     
+    def calculate_metrics(self, input:torch.Tensor, target:torch.Tensor, mask:torch.Tensor=None) -> Dict:
+        metric_score = dict()
+        for metric in self.metrics:
+            metric_score[metric] = self.metrics[metric](input, target, mask)
+            
+        return metric_score
+    
     def training_step(self, batch, batch_idx) -> STEP_OUTPUT:
         batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
-        batch_loss = self.loss(batch_output, batch_labels)
+        # Loss only calculates for the valid timesteps 
+        batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['mask'])
+        step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['mask'])
         # TODO: Fix step level metric logging. Train logging is probably okay, val logging shows opposite trend b/w step and epoch 
         # self.log('train_loss', batch_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         # self.logger.log_metrics({'train_loss': batch_loss}, step = self.global_step)
         step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels, 'step': torch.tensor([self.global_step])}
         if seq_id is not None: step_output.update({'seq_id': seq_id})
+        step_output.update(step_metrics)
         self.step_outputs['train'].append(step_output) 
         return step_output
     
@@ -65,11 +77,13 @@ class MILightningModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx) -> STEP_OUTPUT:
         batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
-        batch_loss = self.loss(batch_output, batch_labels)
+        batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['mask'])
+        step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['mask'])
         # self.log('val_loss', batch_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         # self.logger.log_metrics({'val_loss': batch_loss}, step=self.global_step)
         step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels, 'step': torch.tensor([self.global_step])}
         if seq_id is not None: step_output.update({'seq_id': seq_id})
+        step_output.update(step_metrics)
         self.step_outputs['val'].append(step_output) 
         return step_output
     
@@ -77,10 +91,12 @@ class MILightningModule(pl.LightningModule):
     def test_step(self, batch, batch_idx) -> STEP_OUTPUT:
         batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
-        batch_loss = self.loss(batch_output, batch_labels)
+        batch_loss = self.loss(input=batch_output, target=batch_labels)
+        step_metrics = self.calculate_metrics(batch_output, batch_labels)
         # self.log('test_loss', batch_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels}
         if seq_id is not None: step_output.update({'seq_id': seq_id})
+        step_output.update(step_metrics)
         self.step_outputs['test'].append(step_output) 
         return step_output
 
@@ -119,6 +135,7 @@ class MILightningModule(pl.LightningModule):
             self.labels[process]['preds'].append(cat_outputs['pred'])
         if 'labels' in cat_outputs:
             self.labels[process]['target'].append(cat_outputs['labels'])
+        # ADd metrics to this
             
 
     def on_train_epoch_end(self) -> None:
