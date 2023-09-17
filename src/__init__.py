@@ -5,5 +5,5 @@ from .mi_args import get_data_args, get_model_args, get_training_args, get_defau
 
 from .mi_utils import get_logger
 from .dlatk_datapipeline import DLATKDataGetter
-from .mi_eval import mi_mse, mi_smape
+from .mi_eval import mi_mse, mi_smape, mi_pearsonr
 ## TODO: Think about the eval script and functions
