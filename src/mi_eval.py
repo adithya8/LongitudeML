@@ -5,7 +5,6 @@ import torchmetrics.functional.classification as tm_cls
 
 
 #TODO: Calculate metrics for each timestep range separately (based on how many left to completion)
-
 class MI_Eval:
     def __init__(self, task_type:str, metrics:Union[List[str], str]=None, num_classes:int=1):
         self.task_type = task_type
@@ -45,7 +44,6 @@ class MI_Eval:
         pass
     
     
-    
 def mi_mse(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:torch.Tensor=None):
     """
         Calculate MSE loss for Multi Instance Learning. 
@@ -64,7 +62,7 @@ def mi_mse(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:t
     return loss
 
 
-def mi_smape(input: torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:torch.Tensor=None):
+def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:torch.Tensor=None):
     """
         Calculate SMAPE loss for Multi Instance Learning. 
         Computes SMAPE loss between input and target for the valid timesteps denoted by the mask. 
@@ -82,3 +80,18 @@ def mi_smape(input: torch.Tensor, target:torch.Tensor, reduction:str="mean", mas
         loss = torch.abs(input - target)/(torch.abs(input) + torch.abs(target))*mask
     
     return loss
+
+
+def mi_pearsonr(input:torch.Tensor, target:torch.Tensor, mask:torch.Tensor=None):
+    """
+        Calculate Pearson correlation coefficient for Multi Instance Learning.
+        Computes Pearson correlation coefficient between input and target for the valid timesteps denoted by the mask.
+    """
+    if mask is None:
+        mask = torch.ones(input.shape, device=input.device)
+
+    input_ = (input[mask==1]).flatten()
+    target_ = (target[mask==1]).flatten()
+    pearsonr = tm_reg.pearson_corrcoef(input_, target_)
+    
+    return pearsonr
