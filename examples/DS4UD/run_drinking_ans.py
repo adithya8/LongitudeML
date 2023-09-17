@@ -82,10 +82,6 @@ if __name__ == '__main__':
     
     lightning_module = MILightningModule(args) 
     
-    # TODO: id throuwing error in batching
-    # Error:   File "/users2/avirinchipur/NLP/emi/src/mi_datamodule.py", line 96, in default_collate_fn
-    # raise Warning(f"Key {k} not supported for batching. Leaving it out of the dataloaders")
-    # TODO: Also replace all "Warning" with Log
     trainer.fit(lightning_module, train_dataloaders=dataloaderModule.train_dataloader(), val_dataloaders=dataloaderModule.val_dataloader())
     
     logger.experiment.end()
