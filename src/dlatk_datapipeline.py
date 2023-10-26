@@ -200,7 +200,7 @@ class DLATKDataGetter:
             dataset_dict['seq_idx'].append(seq_id_long)
             dataset_dict['time_ids'].append([x[0] for x in seqid_qryid_mapping[seq_id_long]])
             dataset_dict['query_ids'].append([x[1] for x in seqid_qryid_mapping[seq_id_long]])
-            dataset_dict['embeddings'].append([x[2] for x in seqid_qryid_mapping[seq_id_long]])
+            dataset_dict['embeddings'].append([[x[2] for x in seqid_qryid_mapping[seq_id_long]]])
             # For multi instance learning, the outcome would be a list of labels for each instance (i.e., time_idx) of the sequence
             dataset_dict['labels'].append([outcomes_dict[seq_id]]*len(seqid_qryid_mapping[seq_id_long]))
             # dataset_dict['labels'].append(outcomes_dict[seq_id])
@@ -217,17 +217,23 @@ class DLATKDataGetter:
         
         bool_mask = []
         for i in range(len(dataset_dict['embeddings'])):
-            if len(dataset_dict['embeddings'][i])<min_seq_len:
+            if len(dataset_dict['embeddings'][i][0])<min_seq_len:
                 bool_mask.append(0)
             else:
                 bool_mask.append(1)
-                if len(dataset_dict['embeddings'][i])>max_seq_len:
+                if len(dataset_dict['embeddings'][i][0])>max_seq_len:
                     if retain == "first":
                         for key in dataset_dict.keys():
-                            if isinstance(dataset_dict[key][i], List): dataset_dict[key][i] = dataset_dict[key][i][:max_seq_len]
+                            if key == "embeddings": 
+                                dataset_dict[key][i] = [dataset_dict[key][i][0][:max_seq_len]]
+                            elif isinstance(dataset_dict[key][i], List): 
+                                dataset_dict[key][i] = dataset_dict[key][i][:max_seq_len]
                     else:
                         for key in dataset_dict.keys():
-                            if isinstance(dataset_dict[key][i], List): dataset_dict[key][i] = dataset_dict[key][i][-max_seq_len:]
+                            if key == "embeddings": 
+                                dataset_dict[key][i] = [dataset_dict[key][i][0][-max_seq_len:]]
+                            elif isinstance(dataset_dict[key][i], List): 
+                                dataset_dict[key][i] = dataset_dict[key][i][-max_seq_len:]
         
         # apply mask
         for key in dataset_dict.keys():
@@ -236,23 +242,28 @@ class DLATKDataGetter:
         return dataset_dict
 
 
-    def train_test_split(self, dataset_dict:dict, test_ratio:float=0.2, stratify=None) -> dict:
+    def train_test_split(self, dataset_dict:dict, test_ratio:float=0.2, val_ratio:float=0.0, stratify=None) -> dict:
         """
             Split the dataset into train and test based on the test_ratio
         """
         assert test_ratio > 0 and test_ratio < 1, "test_ratio must be between 0 and 1"
-            
+        assert val_ratio >= 0 and val_ratio < 1, "val_ratio must be between 0 and 1"
+        assert test_ratio + val_ratio < 1, "test_ratio + val_ratio must be less than 1"
+        
+        train_ratio = 1 - test_ratio - val_ratio
         all_idx = list(range(len(dataset_dict['embeddings'])))
         labels=None
         if stratify:
             labels = list(map(lambda x: x[-1], dataset_dict['labels']))
             if isinstance(labels[0], float): labels = np.minimum((np.argsort(labels)/len(labels))//10, 4)  #Making labels discrete to stratify
-            
-        train_idx, test_idx = train_test_split(all_idx, test_size=test_ratio, stratify=labels)
+        if test_ratio>0: train_idx, test_idx = train_test_split(all_idx, test_size=test_ratio, stratify=labels)
+        if stratify: labels = [labels[idx] for idx in train_idx]
+        if val_ratio>0: train_idx, val_idx = train_test_split(train_idx, test_size=(val_ratio/train_ratio), stratify=labels)
              
-        train_datadict, test_datadict = dict(), dict()
+        train_datadict, val_datadict, test_datadict = dict(), dict(), dict()
         for key in dataset_dict:
             train_datadict[key] = [dataset_dict[key][idx] for idx in train_idx]
             test_datadict[key] = [dataset_dict[key][idx] for idx in test_idx]
-                
-        return dict(train_data=train_datadict, val_data=test_datadict)
+            if val_ratio>0: val_datadict[key] = [dataset_dict[key][idx] for idx in val_idx]
+            
+        return dict(train_data=train_datadict, val_data=val_datadict, test_data=test_datadict)
