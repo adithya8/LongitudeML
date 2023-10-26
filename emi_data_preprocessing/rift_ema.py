@@ -23,6 +23,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Get data from DLATK from DS4UD tables')
     parser.add_argument('--outcome_field', type=str, default='drinking_ans_avg', help='Outcome field', choices=INPUT_DICT.keys())
     parser.add_argument('--save_filepath', type=str, help='Output file path to save the data dictionary')#, default='/data/avirinchipur/EMI/datadicts/default.pkl')
+    parser.add_argument('--val_ratio', type=float, default=0.10, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.15, help='Test ratio')
     return parser.parse_args()
 
@@ -32,7 +33,7 @@ if __name__ == '__main__':
     dataDict, longtype_encoder = dlatk_dataGetter.combine_features_and_outcomes()
     dataDict = dlatk_dataGetter.clamp_sequence_length(dataDict, min_seq_len=3, max_seq_len=15, retain="last")
 
-    if args.test_ratio > 0: dataDict = dlatk_dataGetter.train_test_split(dataDict, test_ratio=args.test_ratio)
+    if (args.test_ratio > 0) or (args.val_ratio>0): dataDict = dlatk_dataGetter.train_test_split(dataDict, test_ratio=args.test_ratio, val_ratio=args.val_ratio, stratify=True)
     
     if os.path.exists(args.save_filepath):
         print(f"File {args.save_filepath} already exists. Overwriting...")

@@ -12,4 +12,4 @@ This dir contains scripts to process project specific data into a format ready t
 
 ```python ds4ud_anilsson.py --save_filepath /data/avirinchipur/EMI/datadicts/drinking_ans_avg.pkl```
 
-```python rift_ema.py --outcome_field PCL11_ans_avg --save_filepath /data/avirinchipur/EMI/datadicts/rift_PCL11_ans_avg.pkl```
+```python rift_ema.py --outcome_field PCL11_ans_avg --save_filepath /data/avirinchipur/EMI/datadicts/rift_PCL11_ans_avg.pkl --test_ratio 0.15 --val_ratio 0.10```
