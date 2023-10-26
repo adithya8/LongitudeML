@@ -2,6 +2,8 @@ import argparse
 from dataclasses import dataclass, field
 import random
 from typing import List
+import numpy as np
+from sklearn.model_selection import train_test_split
 from dlatk.featureGetter import FeatureGetter
 from dlatk.outcomeGetter import OutcomeGetter
 
@@ -111,7 +113,7 @@ class DLATKDataGetter:
         #TODO: Add group_freq_thresh/ min query per sequence
         #TODO: Add where to filter to only those sequences that have features
         #TODO: Change the query below to be more generic. This works only for DS4UD anilsson data
-        sql = fg.qb.create_select_query(self.args.msg_table).set_fields(['message_id', 'seq_id', 'day_number'])
+        sql = fg.qb.create_select_query(self.args.msg_table).set_fields(['message_id', self.correl_field, 'day_number']).where("day_number IS NOT NULL")
         print (sql.toString())
         
         qryid_seqid_mapping, qryid_timeids_mapping = dict(), dict()
@@ -191,28 +193,63 @@ class DLATKDataGetter:
         dataset_dict = dict(seq_idx=[], time_ids=[], embeddings=[], labels=[], query_ids=[])
         
         for seq_id in seqids:
+            if seq_id not in outcomes_dict:
+                print (f"Seq_id {seq_id} not found in outcomes_dict. Skipping!!")
+                continue
             seq_id_long = longtype_encoder['seqid_mappings'][seq_id]
             dataset_dict['seq_idx'].append(seq_id_long)
             dataset_dict['time_ids'].append([x[0] for x in seqid_qryid_mapping[seq_id_long]])
             dataset_dict['query_ids'].append([x[1] for x in seqid_qryid_mapping[seq_id_long]])
-            dataset_dict['embeddings'].append([[x[2] for x in seqid_qryid_mapping[seq_id_long]]])
+            dataset_dict['embeddings'].append([x[2] for x in seqid_qryid_mapping[seq_id_long]])
             # For multi instance learning, the outcome would be a list of labels for each instance (i.e., time_idx) of the sequence
             dataset_dict['labels'].append([outcomes_dict[seq_id]]*len(seqid_qryid_mapping[seq_id_long]))
             # dataset_dict['labels'].append(outcomes_dict[seq_id])
             
         return dataset_dict, longtype_encoder
 
-    
-    def train_test_split(self, dataset_dict:dict, test_ratio:float=0.2) -> dict:
+
+    def clamp_sequence_length(self, dataset_dict:dict, min_seq_len:int=3, max_seq_len:int=14, retain:str="last") -> dict:
+        """
+            Clamp the sequence length to min_seq_len and max_seq_len (min and max bounds included)
+            retain: str - retains either the first or the last max_seq_len instances of the sequence. Default: last 
+        """
+        assert retain in ["first", "last"], "retain must be either 'first' or 'last'"
+        
+        bool_mask = []
+        for i in range(len(dataset_dict['embeddings'])):
+            if len(dataset_dict['embeddings'][i])<min_seq_len:
+                bool_mask.append(0)
+            else:
+                bool_mask.append(1)
+                if len(dataset_dict['embeddings'][i])>max_seq_len:
+                    if retain == "first":
+                        for key in dataset_dict.keys():
+                            if isinstance(dataset_dict[key][i], List): dataset_dict[key][i] = dataset_dict[key][i][:max_seq_len]
+                    else:
+                        for key in dataset_dict.keys():
+                            if isinstance(dataset_dict[key][i], List): dataset_dict[key][i] = dataset_dict[key][i][-max_seq_len:]
+        
+        # apply mask
+        for key in dataset_dict.keys():
+            dataset_dict[key] = [dataset_dict[key][i] for i in range(len(dataset_dict[key])) if bool_mask[i]==1]
+        
+        return dataset_dict
+
+
+    def train_test_split(self, dataset_dict:dict, test_ratio:float=0.2, stratify=None) -> dict:
         """
             Split the dataset into train and test based on the test_ratio
         """
         assert test_ratio > 0 and test_ratio < 1, "test_ratio must be between 0 and 1"
-        
+            
         all_idx = list(range(len(dataset_dict['embeddings'])))
-        train_idx = random.sample(all_idx, int((1-test_ratio)*len(all_idx)))
-        test_idx = list(set(all_idx) - set(train_idx))
-        
+        labels=None
+        if stratify:
+            labels = list(map(lambda x: x[-1], dataset_dict['labels']))
+            if isinstance(labels[0], float): labels = np.minimum((np.argsort(labels)/len(labels))//10, 4)  #Making labels discrete to stratify
+            
+        train_idx, test_idx = train_test_split(all_idx, test_size=test_ratio, stratify=labels)
+             
         train_datadict, test_datadict = dict(), dict()
         for key in dataset_dict:
             train_datadict[key] = [dataset_dict[key][idx] for idx in train_idx]
