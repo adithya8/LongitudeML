@@ -3,7 +3,6 @@
     Class for data collators. It won't be required for now. 
 """
 from dataclasses import dataclass
-import torch
 import torch.nn as nn
 
 DATA_COLLATION_FUNCTIONS = ["strict-length", "all-lengths"]

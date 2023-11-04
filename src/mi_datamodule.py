@@ -142,7 +142,7 @@ class MIDataLoaderModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         if self.train_dataset is None: return None
-        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=True, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
 
     def val_dataloader(self):
         if self.dev_dataset is None: return None
