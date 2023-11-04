@@ -25,6 +25,8 @@ def get_model_args(parser: argparse.ArgumentParser):
                         help='number of layers (default: 1)')
     parser.add_argument('--dropout', type=float, default=0.15,
                         help='dropout (default: 0.0)')
+    parser.add_argument('--output_dropout', type=float, default=0.3,
+                        help='output layer dropout (default: 0.3)')
     parser.add_argument('--bidirectional', action='store_true', default=False,
                         help='bidirectional (default: False)')
 
@@ -35,8 +37,12 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='do train (default: False)')
     parser.add_argument('--do_test', action='store_true', default=False,
                         help='do Test (default: False)')
-    parser.add_argument('--epochs', type=int, default=10,
-                        help='number of epochs to train (default: -1, trains until convergence)')
+    parser.add_argument('--do_nfold_cv', action='store_true', default=False,
+                        help='do n-fold cross validation (default: False). Expects "folds" in the dataDict if True')
+    parser.add_argument('--min_epochs', type=int, default=1, 
+                        help="Minimum number of epochs for training (default: 1)")
+    parser.add_argument('--epochs', type=int, default=None,
+                        help='number of epochs to train (default: None (assumes 1000), set to -1 (inf) to train until convergence)')
     parser.add_argument("--train_batch_size", default=32, type=int, 
                         help="Batch size for training.")
     parser.add_argument("--val_batch_size", default=64, type=int,
@@ -59,6 +65,12 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='random seed (default: 42)')
     parser.add_argument('--predict_last_valid_timestep', action='store_true', default=False,
                         help="predict from the last valid timestep's hidden state if true, else predict on all timestep's hidden states (default: False)")
+    parser.add_argument('--early_stopping_patience', type=int, default=0,
+                        help="Patience for Early stopping (default: 0, ie., no early stopping)")
+    parser.add_argument('--early_stopping_min_delta', type=float, default=0.0,
+                        help="Minimum delta value for loss monitoring to consider for early stopping (default: 0.0)")
+    parser.add_argument('--early_stopping_mode', type=str, default='min', choices=['min', 'max'],
+                        help="Early Stopping mode (default: min)")
     #TODO: Add early stopping
 
 
