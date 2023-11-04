@@ -1,5 +1,7 @@
 import os, json
-from pytorch_lightning.loggers import WandbLogger, CometLogger
+from pytorch_lightning.loggers import WandbLogger
+from .custom_comet_logger import CustomCometLogger
+
 
 def get_logger(logger_name:str, **kwargs):
     if logger_name == 'wandb':
@@ -14,7 +16,7 @@ def get_logger(logger_name:str, **kwargs):
         # offline: Run offline (data can be streamed later to wandb servers).
         # anonymous: Enables or explicitly disables anonymous logging. 
         return WandbLogger(**kwargs)
-    elif logger_name == 'comet':
+    elif logger_name == 'comet' or logger_name == 'custom_comet':
         # api_key: Comet API key. Get your API key from Comet.ml
         # workspace: Comet.ml workspace. If you are not using Comet.ml, leave this as None.
         # project_name: Comet.ml project name. If you are not using Comet.ml, leave this as None.
@@ -28,7 +30,7 @@ def get_logger(logger_name:str, **kwargs):
             else:
                 print ('Comet API key not provided. Using default logger.')
                 return None
-        return CometLogger(**kwargs)
+        return CustomCometLogger(**kwargs)
     else:
         print (f'Logger {logger_name} not implemented. Using default logger.')
         return None
