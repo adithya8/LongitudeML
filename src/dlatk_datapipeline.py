@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import random
 from typing import List
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from dlatk.featureGetter import FeatureGetter
 from dlatk.outcomeGetter import OutcomeGetter
 
@@ -217,23 +217,25 @@ class DLATKDataGetter:
         
         bool_mask = []
         for i in range(len(dataset_dict['embeddings'])):
-            if len(dataset_dict['embeddings'][i][0])<min_seq_len:
+            if len(dataset_dict['embeddings'][i][0])<min_seq_len:  
                 bool_mask.append(0)
             else:
-                bool_mask.append(1)
                 if len(dataset_dict['embeddings'][i][0])>max_seq_len:
                     if retain == "first":
+                        # TODO: Choose the first max_seq_len instances of the sequence, such that last instance time_id - first instance time_id <= max_seq_len and last instance time_id - first instance time_id >= min_seq_len
                         for key in dataset_dict.keys():
                             if key == "embeddings": 
                                 dataset_dict[key][i] = [dataset_dict[key][i][0][:max_seq_len]]
                             elif isinstance(dataset_dict[key][i], List): 
                                 dataset_dict[key][i] = dataset_dict[key][i][:max_seq_len]
                     else:
+                        # TODO: Choose the last max_seq_len instances of the sequence, such that last instance time_id - first instance time_id <= max_seq_len and last instance time_id - first instance time_id >= min_seq_len
                         for key in dataset_dict.keys():
                             if key == "embeddings": 
                                 dataset_dict[key][i] = [dataset_dict[key][i][0][-max_seq_len:]]
                             elif isinstance(dataset_dict[key][i], List): 
                                 dataset_dict[key][i] = dataset_dict[key][i][-max_seq_len:]
+                bool_mask.append(1)
         
         # apply mask
         for key in dataset_dict.keys():
@@ -256,9 +258,9 @@ class DLATKDataGetter:
         if stratify:
             labels = list(map(lambda x: x[-1], dataset_dict['labels']))
             if isinstance(labels[0], float): labels = np.minimum((np.argsort(labels)/len(labels))//10, 4)  #Making labels discrete to stratify
-        if test_ratio>0: train_idx, test_idx = train_test_split(all_idx, test_size=test_ratio, stratify=labels)
+        if test_ratio>0: train_idx, test_idx = train_test_split(all_idx, test_size=test_ratio, stratify=labels, random_state=52)
         if stratify: labels = [labels[idx] for idx in train_idx]
-        if val_ratio>0: train_idx, val_idx = train_test_split(train_idx, test_size=(val_ratio/train_ratio), stratify=labels)
+        if val_ratio>0: train_idx, val_idx = train_test_split(train_idx, test_size=(val_ratio/train_ratio), stratify=labels, random_state=52)
              
         train_datadict, val_datadict, test_datadict = dict(), dict(), dict()
         for key in dataset_dict:
@@ -267,3 +269,35 @@ class DLATKDataGetter:
             if val_ratio>0: val_datadict[key] = [dataset_dict[key][idx] for idx in val_idx]
             
         return dict(train_data=train_datadict, val_data=val_datadict, test_data=test_datadict)
+    
+    
+    def n_fold_split(self, dataset_dict:dict, folds:int=5, stratify=None) -> dict:
+        """
+            Splits the dataset into n folds
+        """
+        assert folds > 1, "folds must be greater than 1"
+        
+        # if dataset is split into train and test, perform the nfold split on train set, else perform on the entire dataset
+        folds_idx = []
+        all_idx = list(range(len(dataset_dict['train_data']['embeddings']))) if 'train_data' in dataset_dict else list(range(len(dataset_dict['embeddings'])))
+        labels=None
+        if stratify:
+            labels = list(map(lambda x: x[-1], dataset_dict['train_data']['labels'])) if 'train_data' in dataset_dict else list(map(lambda x: x[-1], dataset_dict['labels']))
+            if isinstance(labels[0], float): labels = np.minimum((np.argsort(labels)/len(labels))//10, 4)
+            
+            skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
+            for fold, (_, test_idx) in enumerate(skf.split(all_idx, labels)):
+                folds_idx.extend([(fold, idx) for idx in test_idx])
+            
+            folds_idx = sorted(folds_idx, key=lambda x: x[1])
+            folds_idx = [x[0] for x in folds_idx]
+        else:
+            random.seed(42)
+            folds_idx = random.sample(range(folds), k=len(all_idx))
+        
+        if 'train_data' in dataset_dict:
+            dataset_dict['train_data']['folds'] = folds_idx
+        else:
+            dataset_dict['folds'] = folds_idx
+        
+        return dataset_dict
