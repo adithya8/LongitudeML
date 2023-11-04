@@ -15,7 +15,7 @@ torch.manual_seed(42)
 #################################
 
 class recurrent(nn.Module):
-    def __init__(self, input_size, hidden_size, num_classes, num_layers=1, dropout=0.0, bidirectional=False):
+    def __init__(self, input_size, hidden_size, num_classes, num_layers=1, dropout=0.0, bidirectional=False, output_dropout=0.0):
         super(recurrent, self).__init__()
         
         self.input_size = input_size
@@ -27,7 +27,9 @@ class recurrent(nn.Module):
         
         # TODO: Positional encoding
         self.model = []
+        self.output_dropout = nn.Dropout(output_dropout)
         
+        #TODO: Decouple the GRU layer from the linear layer. 
         self.model.append(nn.GRU(input_size = self.input_size, hidden_size = self.hidden_size, num_layers = self.num_layers, \
                                  dropout = self.dropout, bidirectional = self.bidirectional, batch_first=True))
         
@@ -71,7 +73,7 @@ class recurrent(nn.Module):
                     output_rep = (output_rep*pos_mask.unsqueeze(-1)).sum(dim=1)
                 else: # Predict for all timesteps' hidden states; Zero out the hidden states using mask if available
                     if mask is not None: output_rep = (output_rep*mask.unsqueeze(-1))  
-                output = layer(output_rep).squeeze(-1)
+                output = layer(self.output_dropout(output_rep)).squeeze(-1)
                 
         
         return output
