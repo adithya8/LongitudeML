@@ -1,0 +1,28 @@
+DB: EMI
+
+DATASET: RIFT
+MESSAGE_TABLE: wtc_calls_msgs_cleaned
+OUTCOMES_TABLE: RIFT_EMA_cleaned, RIFT_EMA_cleaned_aggregated
+
+LOGS:
+
+CREATE TABLE RIFT_EMA_cleaned_aggregated ( 
+    user_id int(8) PRIMARY KEY, num_days int, min_date DATE, max_date DATE, 
+    PCL11_avg DOUBLE, IDAS_dep_avg DOUBLE, PCL11_ans_avg DOUBLE, IDAS_dep_ans_avg DOUBLE,
+    PCL11_minmax_avg DOUBLE, IDAS_dep_minmax_avg DOUBLE, 
+    PCL11_minmax_ans_avg DOUBLE, IDAS_dep_minmax_ans_avg DOUBLE
+    );
+
+INSERT INTO RIFT_EMA_cleaned_aggregated 
+    SELECT user_id, COUNT(1) as num_days, MIN(date) as min_date, MAX(date) as max_date, 
+    AVG(PCL11) PCL11_avg , AVG(IDAS_dep) IDAS_dep_avg, AVG(PCL11_ans) PCL11_ans_avg, AVG(IDAS_dep_ans) IDAS_dep_ans_avg,
+    AVG(PCL11_minmax) PCL11_minmax_avg, AVG(IDAS_dep_minmax) IDAS_dep_minmax_avg, 
+    AVG(PCL11_minmax_ans) PCL11_minmax_ans_avg, AVG(IDAS_dep_minmax_ans) IDAS_dep_minmax_ans_avg
+    FROM (SELECT A.user_id, A.date, B.time, 
+        B.PCL11, B.IDAS_dep, (B.PCL11-11)/55 AS PCL11_minmax, (B.IDAS_dep-9)/45 AS IDAS_dep_minmax, 
+        2*SQRT(B.PCL11+(3/8)) AS PCL11_ans, 2*SQRT(B.IDAS_dep+(3/8)) AS IDAS_dep_ans,
+        2*SQRT((B.PCL11-11)/55+(3/8)) AS PCL11_minmax_ans, 2*SQRT((B.IDAS_dep-9)/45+(3/8)) AS IDAS_dep_minmax_ans 
+        FROM wtc_calls_msgs_cleaned A INNER JOIN RIFT_EMA_cleaned B 
+        ON A.user_id = B.user_id AND A.date = B.date 
+        WHERE B.PCL11 IS NOT NULL AND B.IDAS_dep IS NOT NULL)f 
+    GROUP BY user_id;
