@@ -1,4 +1,4 @@
-from typing import Any, List, Optional, Union
+from typing import Any, List, Union
 import torch
 import torchmetrics.functional.regression as tm_reg
 import torchmetrics.functional.classification as tm_cls  
@@ -95,3 +95,21 @@ def mi_pearsonr(input:torch.Tensor, target:torch.Tensor, mask:torch.Tensor=None)
     pearsonr = tm_reg.pearson_corrcoef(input_, target_)
     
     return pearsonr
+
+
+def mi_mae(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:torch.Tensor=None):
+    """
+        Calculate MAE loss for Multi Instance Learning. 
+        Computes MAE loss between input and target for the valid timesteps denoted by the mask. 
+    """
+    if mask is None:
+        mask = torch.ones(input.shape, device=input.device) 
+    
+    if reduction == "mean":
+        loss = torch.sum(torch.abs(input - target)*mask)/torch.sum(mask)
+    elif reduction == "sum":
+        loss = torch.sum(torch.abs(input - target)*mask)
+    elif reduction == "none" or reduction is None:
+        loss = torch.abs(input - target)*mask
+    
+    return loss
