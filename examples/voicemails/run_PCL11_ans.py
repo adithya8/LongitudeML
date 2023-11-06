@@ -6,6 +6,7 @@ add_to_path(__file__)
 from numpy import min as np_min
 import pytorch_lightning as pl
 import optuna
+from optuna.integration import PyTorchLightningPruningCallback
 
 from src import (
     get_default_args, get_logger,
@@ -14,10 +15,14 @@ from src import (
 )
 
 
-def objective(trial: optuna.trial.Trial, args, dataloaderModule):    
+def objective(trial: optuna.trial.Trial, args, dataloaderModule):
+    # Set the seed for reproducibility. Model init with same weight for every trial
+    pl.seed_everything(args.seed)
+    
     args.lr = trial.suggest_float("lr", 9e-5, 1e-3, log=True)
     args.weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-1, log=True)
     args.output_dropout = trial.suggest_float("output_dropout", 0.0, 0.5)
+    args.hidden_size = trial.suggest_categorical("hidden_size", [16, 32, 64, 128])
     
     lightning_module = MILightningModule(args)
 
@@ -28,10 +33,10 @@ def objective(trial: optuna.trial.Trial, args, dataloaderModule):
     logger = get_logger('comet', workspace=args.workspace, project_name=args.project_name, experiment_name=trial_exp_name, save_dir=args.output_dir)
     logger.log_hyperparams(args.__dict__)
     
-    # add callback for early stopping, and best model saving    
-    callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
-                                        mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)] if args.early_stopping_patience>0 else []
-    callbacks.append(pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1, save_last=False))
+    # add callback for early stopping
+    callbacks=[PyTorchLightningPruningCallback(trial, monitor="val_loss")]
+    if args.early_stopping_patience>0: callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
+                                                                             mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)]
     trainer = pl.Trainer(accelerator='gpu', devices=1, default_root_dir=args.output_dir, logger=logger,
                         callbacks=callbacks, min_epochs=args.min_epochs, max_epochs=args.epochs)
     trainer.fit(lightning_module, train_dataloaders=dataloaderModule.train_dataloader(), val_dataloaders=dataloaderModule.val_dataloader())
@@ -39,11 +44,8 @@ def objective(trial: optuna.trial.Trial, args, dataloaderModule):
     score = np_min(lightning_module.epoch_loss['val'])
     logger.experiment.end()
     
-    # move outputs dir to HPARAM_OUTPUT_DIR
-
     SRC_PATH = os.path.join(args.output_dir, '{}/{}/'.format(logger._project_name, logger._experiment_key))
     DEST_PATH = args.HPARAM_OUTPUT_DIR + '/{}/'.format(logger._experiment_key)
-    import pdb; pdb.set_trace()
     print ('Moving {} to {}'.format(SRC_PATH, DEST_PATH))
     shutil.move(SRC_PATH, DEST_PATH)
     
@@ -53,10 +55,7 @@ def objective(trial: optuna.trial.Trial, args, dataloaderModule):
 if __name__ == '__main__':
     # Get the args from command line
     args = get_default_args()
-
-    # Set the seed for reproducibility
-    pl.seed_everything(args.seed)
-
+    
     # Get the datasetDict
     dataDict = {'train_data': None, 'val_data': None, 'test_data': None}
 
@@ -98,7 +97,6 @@ if __name__ == '__main__':
         if args.do_test: print ('test_data not provided. Testing will not be performed.')
         dataDict['test_data'] = None
     
-    # TODO: the function expects train, val and test. Correct this. 
     # Get the datasetDict (in HF datasetDict format) containing the embeddings across the temporal dimension for each sequence along with the labels and sequence numbers
     datasetDict = get_datasetDict(train_data=dataDict['train_data'], val_data=dataDict['val_data'], test_data=dataDict['test_data'])
     
@@ -109,7 +107,6 @@ if __name__ == '__main__':
         print ('Creating output directory: {}'.format(args.output_dir))
         os.makedirs(args.output_dir)
     
-    #TODO: Check the logic for prediction dumps
     
     if args.do_hparam_tune:
         # Get the dataloader module
@@ -127,7 +124,9 @@ if __name__ == '__main__':
         print("Best trial:")
         best_trial = study.best_trial
         
+        # Print value and trial number
         print ("  Value: {}".format(best_trial.value))
+        print ("  Number: {}".format(best_trial.number))
         
         print ("  Params: ")
         for key, value in best_trial.params.items():
@@ -137,6 +136,9 @@ if __name__ == '__main__':
         study.trials_dataframe().to_csv(os.path.join(args.HPARAM_OUTPUT_DIR, 'trials.csv'))
         
     elif args.do_train:
+        # Set the seed for reproducibility
+        pl.seed_everything(args.seed)
+        
         # Get the logger and log the hyperparameters
         logger = get_logger('comet', workspace=args.workspace, project_name=args.project_name, experiment_name=args.experiment_name, save_dir=args.output_dir)
         logger.log_hyperparams(args.__dict__)
@@ -150,7 +152,7 @@ if __name__ == '__main__':
         
         callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
                                             mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)] if args.early_stopping_patience>0 else []
-        
+        callbacks.append(pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1, save_last=False))
         trainer = pl.Trainer(accelerator='gpu', devices=1, default_root_dir=args.output_dir, logger=logger, 
                             callbacks=callbacks, min_epochs=args.min_epochs, max_epochs=args.epochs)
         
