@@ -98,16 +98,15 @@ if __name__ == '__main__':
         dataDict['test_data'] = None
     
     # Get the datasetDict (in HF datasetDict format) containing the embeddings across the temporal dimension for each sequence along with the labels and sequence numbers
-    datasetDict = get_datasetDict(train_data=dataDict['train_data'], val_data=dataDict['val_data'], test_data=dataDict['test_data'])
+    datasetDict = get_datasetDict(train_data=dataDict['train_data'], val_data=dataDict['val_data'], test_data=dataDict['test_data'], val_folds=args.val_folds)
     
     # Create a mask pattern for the sequence
     datasetDict = datasetDict.map(create_mask)
-    
+
     if not os.path.exists(args.output_dir):
         print ('Creating output directory: {}'.format(args.output_dir))
         os.makedirs(args.output_dir)
-    
-    
+        
     if args.do_hparam_tune:
         # Get the dataloader module
         date_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
