@@ -2,26 +2,31 @@
     Utility functions for MI dataloading.
     Includes dataset creation, collation functions, Dataloader class that would be inputted to pl Trainer.
 """
-from typing import Any, Dict
+from typing import Any, Dict, List
 import torch
 from torch.utils.data import DataLoader, Dataset
 from datasets import DatasetDict, Dataset
 import pytorch_lightning as pl
 
 
-def get_datasetDict(train_data:Dict, val_data:Dict, test_data:Dict):
+def get_datasetDict(train_data:Dict, val_data:Dict, test_data:Dict, val_folds:List):
     """
         Returns the Huggingface datasets.DatasetDict.
         Each input dictionary contains three key value pairs:
             1. embeddings: List of embeddings for each sequence of shape (1, seq_len, hidden_dim)
             2. labels: List of labels for each sequence of shape (seq_len, )
-            3. time_idx [Optional]: List of sequence numbers for each sequence of shape (seq_len, )
+            3. time_ids [Optional]: List of sequence numbers for each sequence of shape (seq_len, )
     """
     
     datasetDict = DatasetDict()
     if train_data is not None: datasetDict['train'] = Dataset.from_dict(train_data)
     if val_data is not None: datasetDict['val'] = Dataset.from_dict(val_data)
     if test_data is not None: datasetDict['test']  = Dataset.from_dict(test_data)
+
+    if val_folds is not None:
+        val_folds = set(val_folds)
+        datasetDict['val'] = datasetDict['train'].filter(lambda example: example['folds'] in val_folds).remove_columns('folds')
+        datasetDict['train'] = datasetDict['train'].filter(lambda example: example['folds'] not in val_folds).remove_columns('folds')
     
     def create_defaut_time_ids(instance):
         """

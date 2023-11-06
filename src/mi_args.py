@@ -37,8 +37,8 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='do train (default: False)')
     parser.add_argument('--do_test', action='store_true', default=False,
                         help='do Test (default: False)')
-    parser.add_argument('--do_nfold_cv', action='store_true', default=False,
-                        help='do n-fold cross validation (default: False). Expects "folds" in the dataDict if True')
+    parser.add_argument('--val_folds', nargs='+', type=int, default=[],
+                        help='folds to validate on (default: [])')
     parser.add_argument('--do_hparam_tune', action='store_true', default=False,
                         help='do hyperparameter tuning (default: False)')
     parser.add_argument('--n_trials', type=int, default=100,
