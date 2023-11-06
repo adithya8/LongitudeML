@@ -39,6 +39,10 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='do Test (default: False)')
     parser.add_argument('--do_nfold_cv', action='store_true', default=False,
                         help='do n-fold cross validation (default: False). Expects "folds" in the dataDict if True')
+    parser.add_argument('--do_hparam_tune', action='store_true', default=False,
+                        help='do hyperparameter tuning (default: False)')
+    parser.add_argument('--n_trials', type=int, default=100,
+                        help='number of trials for hyperparameter tuning (default: 100)')    
     parser.add_argument('--min_epochs', type=int, default=1, 
                         help="Minimum number of epochs for training (default: 1)")
     parser.add_argument('--epochs', type=int, default=None,

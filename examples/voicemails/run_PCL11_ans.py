@@ -1,8 +1,11 @@
-import os, pickle
+import os, pickle, shutil
+from datetime import datetime
 from utils import add_to_path
 add_to_path(__file__)
 
+from numpy import min as np_min
 import pytorch_lightning as pl
+import optuna
 
 from src import (
     get_default_args, get_logger,
@@ -11,14 +14,45 @@ from src import (
 )
 
 
-if __name__ == '__main__':
+def objective(trial: optuna.trial.Trial, args, dataloaderModule):    
+    args.lr = trial.suggest_float("lr", 9e-5, 1e-3, log=True)
+    args.weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-1, log=True)
+    args.output_dropout = trial.suggest_float("output_dropout", 0.0, 0.5)
+    
+    lightning_module = MILightningModule(args)
 
-    # Get the args from command line
-    args = get_default_args()
+    trial_number = trial.number
+    trial_exp_name = args.experiment_name+'_trial_{}'.format(trial_number)
 
     # Get the logger and log the hyperparameters
-    logger = get_logger('comet', workspace=args.workspace, project_name=args.project_name, experiment_name=args.experiment_name, save_dir=args.output_dir)
+    logger = get_logger('comet', workspace=args.workspace, project_name=args.project_name, experiment_name=trial_exp_name, save_dir=args.output_dir)
     logger.log_hyperparams(args.__dict__)
+    
+    # add callback for early stopping, and best model saving    
+    callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
+                                        mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)] if args.early_stopping_patience>0 else []
+    callbacks.append(pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1, save_last=False))
+    trainer = pl.Trainer(accelerator='gpu', devices=1, default_root_dir=args.output_dir, logger=logger,
+                        callbacks=callbacks, min_epochs=args.min_epochs, max_epochs=args.epochs)
+    trainer.fit(lightning_module, train_dataloaders=dataloaderModule.train_dataloader(), val_dataloaders=dataloaderModule.val_dataloader())
+    
+    score = np_min(lightning_module.epoch_loss['val'])
+    logger.experiment.end()
+    
+    # move outputs dir to HPARAM_OUTPUT_DIR
+
+    SRC_PATH = os.path.join(args.output_dir, '{}/{}/'.format(logger._project_name, logger._experiment_key))
+    DEST_PATH = args.HPARAM_OUTPUT_DIR + '/{}/'.format(logger._experiment_key)
+    import pdb; pdb.set_trace()
+    print ('Moving {} to {}'.format(SRC_PATH, DEST_PATH))
+    shutil.move(SRC_PATH, DEST_PATH)
+    
+    return score
+
+
+if __name__ == '__main__':
+    # Get the args from command line
+    args = get_default_args()
 
     # Set the seed for reproducibility
     pl.seed_everything(args.seed)
@@ -71,18 +105,42 @@ if __name__ == '__main__':
     # Create a mask pattern for the sequence
     datasetDict = datasetDict.map(create_mask)
     
+    if not os.path.exists(args.output_dir):
+        print ('Creating output directory: {}'.format(args.output_dir))
+        os.makedirs(args.output_dir)
     
-    if args.do_nfold_cv:
-        raise NotImplementedError('N-fold cross validation is not implemented yet.')
-        # Process the datasetDict for n-fold cross validation
-        # num_folds = len(set(datasetDict['train_data']['folds']))
-        # for fold in range(num_folds):
-        #     # generate train and val set from dataDict
-        #     # do hyperparam search for each fold and report log the best model's metrics
-        #     # Combine folds predictions and calculate the metrics
-        #     pass
+    #TODO: Check the logic for prediction dumps
+    
+    if args.do_hparam_tune:
+        # Get the dataloader module
+        date_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        args.HPARAM_OUTPUT_DIR = os.path.join(args.output_dir, args.project_name, 'hparam_'+date_time)
+        os.makedirs(args.HPARAM_OUTPUT_DIR)
+        
+        dataloaderModule = MIDataLoaderModule(args, datasetDict)
+        
+        sampler = optuna.samplers.TPESampler(seed=args.seed)
+        study = optuna.create_study(direction="minimize", sampler=sampler)
+        study.optimize(lambda trial: objective(trial, args, dataloaderModule), n_trials=args.n_trials)
+
+        print("Number of finished trials: {}".format(len(study.trials)))
+        print("Best trial:")
+        best_trial = study.best_trial
+        
+        print ("  Value: {}".format(best_trial.value))
+        
+        print ("  Params: ")
+        for key, value in best_trial.params.items():
+            print ("    {}: {}".format(key, value))
+        
+        # Save trials to output_dir as csv
+        study.trials_dataframe().to_csv(os.path.join(args.HPARAM_OUTPUT_DIR, 'trials.csv'))
         
     elif args.do_train:
+        # Get the logger and log the hyperparameters
+        logger = get_logger('comet', workspace=args.workspace, project_name=args.project_name, experiment_name=args.experiment_name, save_dir=args.output_dir)
+        logger.log_hyperparams(args.__dict__)
+        
         # Get the dataloader module
         dataloaderModule = MIDataLoaderModule(args, datasetDict)
         
@@ -98,8 +156,7 @@ if __name__ == '__main__':
         
         lightning_module = MILightningModule(args) 
         
-        if args.do_train:
-            trainer.fit(lightning_module, train_dataloaders=dataloaderModule.train_dataloader(), val_dataloaders=dataloaderModule.val_dataloader())
+        trainer.fit(lightning_module, train_dataloaders=dataloaderModule.train_dataloader(), val_dataloaders=dataloaderModule.val_dataloader())
         
         # Save predictions to output_dir
         with open(os.path.join(args.output_dir, '{}/{}/preds.pkl'.format(logger._project_name, logger._experiment_key)), 'wb') as f:
@@ -110,7 +167,6 @@ if __name__ == '__main__':
         with open(os.path.join(args.output_dir, '{}/{}/epoch_metrics.pkl'.format(logger._project_name, logger._experiment_key)), 'wb') as f:
             pickle.dump(lightning_module.epoch_metrics, f, protocol=pickle.HIGHEST_PROTOCOL)
         print ('Saved epoch metrics to {}'.format(os.path.join(args.output_dir, '{}/{}/epoch_metrics.pkl'.format(logger._project_name, logger._experiment_key))))
-    
-    # if args.do_test
-    
-    logger.experiment.end()
+            
+        logger.experiment.end()
+        # if args.do_test
