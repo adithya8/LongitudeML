@@ -20,7 +20,7 @@ def get_datasetDict(train_data:Dict, val_data:Dict, test_data:Dict):
     
     datasetDict = DatasetDict()
     if train_data is not None: datasetDict['train'] = Dataset.from_dict(train_data)
-    if val_data is not None: datasetDict['dev'] = Dataset.from_dict(val_data)
+    if val_data is not None: datasetDict['val'] = Dataset.from_dict(val_data)
     if test_data is not None: datasetDict['test']  = Dataset.from_dict(test_data)
     
     def create_defaut_time_ids(instance):
@@ -51,16 +51,20 @@ def create_mask(examples):
         missing_time_ids = set(range(sorted_time_ids[0], sorted_time_ids[-1]+1)) - set(sorted_time_ids)
         min_time_id = sorted_time_ids[0]
         original_time_id_mask = [1]*len(instance['time_ids'])
+        infill_mask = [0]*len(instance['time_ids'])
         for time_id in sorted(missing_time_ids):
             # TODO: Following mask logic has to be changed in case we are going for last valid timestep prediction. 
             # The current logic in modelling uses the number of 1's in the mask to determine the last valid timestep.
-            original_time_id_mask.insert(time_id-min_time_id, 0) # inserting 0 at the missing time_id
+            original_time_id_mask.insert(time_id-min_time_id, 1) # inserting 1 as mask at the missing time_id for EMI
+            infill_mask.insert(time_id-min_time_id, 1) # inserting 1 as mask at the missing time_id 
             instance['time_ids'].insert(time_id-min_time_id, time_id)
             instance['query_ids'].insert(time_id-min_time_id, instance['query_ids'][time_id-min_time_id-1])
+            # instance['embeddings'][0].insert(time_id-min_time_id, [0]*len(instance['embeddings'][0][time_id-min_time_id-1])) # 0 infilling is not better than copying the previous vector
             instance['embeddings'][0].insert(time_id-min_time_id, instance['embeddings'][0][time_id-min_time_id-1])
             instance['labels'].insert(time_id-min_time_id, instance['labels'][time_id-min_time_id-1])
         # instance['labels'] = torch.tensor(instance['labels']).expand(len(instance['time_idx'])).tolist()
         instance['mask'] = original_time_id_mask
+        instance['infill_mask'] = infill_mask
         return instance
 
     def create_mask_pattern(instance):
@@ -84,6 +88,7 @@ def default_collate_fn(features, predict_last_valid_timestep):
     # Labels shape: (seq_len, )
     # time_idx shape: (seq_len, )
     # mask shape: (seq_len, )
+    # infill_mask shape: (seq_len, )
     # query_id shape: (seq_len, )
     # seq_id shape: []
     first = features[0]
@@ -92,14 +97,14 @@ def default_collate_fn(features, predict_last_valid_timestep):
     for k, _ in first.items():
         if k == "embeddings":
             for feat in features:
-                embeddings = torch.tensor(feat['embeddings']).clone()
+                embeddings = torch.tensor(feat['embeddings']).clone().detach()
                 if embeddings.shape[1] < max_seq_len:
                     zeros = torch.zeros((1, max_seq_len - embeddings.shape[1], embeddings.shape[2]))
                     feat['embeddings'] = torch.cat((embeddings, zeros), dim=1)
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
-        elif k=="labels" or k=="mask" or k=="time_ids":
+        elif k=="labels" or k=="mask" or k=="time_ids" or k=="infill_mask":
             batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=0, batch_first=True)
-            if k == "mask": 
+            if k == "mask" or k == "infill_mask": 
                 batch[k] = batch[k].to(torch.bool)
             elif k == "labels": 
                 batch[k] = batch[k].to(torch.float)
@@ -122,7 +127,7 @@ class MIDataLoaderModule(pl.LightningDataModule):
         super().__init__()
         self.args = data_args
         self.train_dataset = datasets.pop('train', None)
-        self.dev_dataset = datasets.pop('dev', None)
+        self.val_dataset = datasets.pop('val', None)
         self.test_dataset = datasets.pop('test', None)
         self.predict_dataset = datasets.pop('predict', None)
         print ('Predict Last Valid Timestep set to {}'.format(data_args.predict_last_valid_timestep))
@@ -145,8 +150,8 @@ class MIDataLoaderModule(pl.LightningDataModule):
         return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=True, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
 
     def val_dataloader(self):
-        if self.dev_dataset is None: return None
-        return DataLoader(self.dev_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
+        if self.val_dataset is None: return None
+        return DataLoader(self.val_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
 
     def test_dataloader(self):
         if self.test_dataset is None: return None
