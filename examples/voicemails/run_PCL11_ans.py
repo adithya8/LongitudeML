@@ -6,6 +6,7 @@ add_to_path(__file__)
 from numpy import min as np_min
 import pytorch_lightning as pl
 import optuna
+from optuna.pruners import HyperbandPruner
 from optuna.integration import PyTorchLightningPruningCallback
 
 from src import (
@@ -19,10 +20,10 @@ def objective(trial: optuna.trial.Trial, args, dataloaderModule):
     # Set the seed for reproducibility. Model init with same weight for every trial
     pl.seed_everything(args.seed)
     
-    args.lr = trial.suggest_float("lr", 9e-5, 1e-3, log=True)
+    args.lr = trial.suggest_float("lr", 9e-5, 1e-2, log=True)
     args.weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-1, log=True)
     args.output_dropout = trial.suggest_float("output_dropout", 0.0, 0.5)
-    args.hidden_size = trial.suggest_categorical("hidden_size", [16, 32, 64, 128])
+    args.hidden_size = trial.suggest_categorical("hidden_size", [16, 32, 64])
     
     lightning_module = MILightningModule(args)
 
@@ -38,7 +39,7 @@ def objective(trial: optuna.trial.Trial, args, dataloaderModule):
     if args.early_stopping_patience>0: callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
                                                                              mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)]
     trainer = pl.Trainer(accelerator='gpu', devices=1, default_root_dir=args.output_dir, logger=logger,
-                        callbacks=callbacks, min_epochs=args.min_epochs, max_epochs=args.epochs)
+                        callbacks=callbacks, min_epochs=args.min_epochs, max_epochs=args.epochs, enable_checkpointing=False)
     trainer.fit(lightning_module, train_dataloaders=dataloaderModule.train_dataloader(), val_dataloaders=dataloaderModule.val_dataloader())
     
     score = np_min(lightning_module.epoch_loss['val'])
@@ -47,7 +48,7 @@ def objective(trial: optuna.trial.Trial, args, dataloaderModule):
     SRC_PATH = os.path.join(args.output_dir, '{}/{}/'.format(logger._project_name, logger._experiment_key))
     DEST_PATH = args.HPARAM_OUTPUT_DIR + '/{}/'.format(logger._experiment_key)
     print ('Moving {} to {}'.format(SRC_PATH, DEST_PATH))
-    shutil.move(SRC_PATH, DEST_PATH)
+    if os.path.exists(SRC_PATH): shutil.move(SRC_PATH, DEST_PATH)
     
     return score
 
@@ -116,7 +117,7 @@ if __name__ == '__main__':
         dataloaderModule = MIDataLoaderModule(args, datasetDict)
         
         sampler = optuna.samplers.TPESampler(seed=args.seed)
-        study = optuna.create_study(direction="minimize", sampler=sampler)
+        study = optuna.create_study(direction="minimize", sampler=sampler, pruner=HyperbandPruner(max_resource=args.epochs))
         study.optimize(lambda trial: objective(trial, args, dataloaderModule), n_trials=args.n_trials)
 
         print("Number of finished trials: {}".format(len(study.trials)))
