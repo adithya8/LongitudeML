@@ -2,22 +2,23 @@ import os
 import argparse
 import pickle
 from utils import add_to_path
+from copy import deepcopy
 
 add_to_path(__file__)
 from src import DLATKDataGetter
 
-base_dict = dict(db="EMI", msg_table="wtc_calls_msgs_cleaned", feature_table="feat$dr_rpca_128_robaL11_fb20$wtc_calls_msgs_cleaned$message_id", #feature_table="feat$roberta_ba_meL11con$wtc_calls_msgs_cleaned$message_id",
-                 outcome_table="RIFT_EMA_cleaned_aggregated", outcome_field="", correl_field="user_id")
+base_dict = dict(db="EMI", msg_table="wtc_calls_msgs_cleaned", feature_table="feat$dr_rpca_64_robaL11_fb20$wtc_calls_msgs_cleaned$message_id", #feature_table="feat$roberta_ba_meL11con$wtc_calls_msgs_cleaned$message_id",
+                 outcome_table="RIFT_EMA_cleaned_aggregated", outcome_field="", correl_field="user_id", timeid_field="day_number")
 
 INPUT_DICT = {
     # "PCL11_avg": base_dict,
-    "PCL11_minmax_avg": base_dict,
+    "PCL11_minmax_avg": deepcopy(base_dict),
     # "PCL11_ans_avg": base_dict,
-    "PCL11_minmax_ans_avg": base_dict,
+    "PCL11_minmax_ans_avg": deepcopy(base_dict),
     # "IDAS_dep_avg": base_dict,
-    "IDAS_dep_minmax_avg": base_dict,
+    "IDAS_dep_minmax_avg": deepcopy(base_dict),
     # "IDAS_dep_ans_avg": base_dict,
-    "IDAS_dep_minmax_ans_avg": base_dict
+    "IDAS_dep_minmax_ans_avg": deepcopy(base_dict)
 }
 
 for outcome in INPUT_DICT:
