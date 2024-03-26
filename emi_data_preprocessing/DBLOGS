@@ -1,6 +1,6 @@
 DB: EMI
 
-DATASET: RIFT
+DATASET: voicemails
 MESSAGE_TABLE: wtc_calls_msgs_cleaned
 OUTCOMES_TABLE: RIFT_EMA_cleaned, RIFT_EMA_cleaned_aggregated
 
@@ -26,3 +26,288 @@ INSERT INTO RIFT_EMA_cleaned_aggregated
         ON A.user_id = B.user_id AND A.date = B.date 
         WHERE B.PCL11 IS NOT NULL AND B.IDAS_dep IS NOT NULL)f 
     GROUP BY user_id;
+
+------------------------------------------------------------
+
+DATASET: DS4UD
+MESSAGE_TABLE:
+OUTCOMES_TABLE: ds4ud_wave_drinks_words_v9, ds4ud_wave_drinks_essays_v9
+
+LOGS:
+
+CREATE VIEW ds4ud_msgs_words_day_v9 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0;
+
+CREATE VIEW ds4ud_msgs_essays_day_v9 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', TRIM(essay_1), TRIM(essay_2), TRIM(essay_3)) AS message, number_of_responses  
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(essay_1)+LENGTH(essay_2)+LENGTH(essay_3)>0;
+
+CREATE TABLE ds4ud_wave_drinks_words_v9 ( 
+    user_id int(11), year_wave varchar(10), usryrwv_id varchar(16), 
+    drinks_avg double, drinks_ans_avg double, 
+    is_train int(2), is_dev int(2), fold_num int(2)) engine=MyISAM;
+
+INSERT INTO ds4ud_wave_drinks_words_v9 
+    SELECT user_id, year_wave, CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg, AVG(SQRT(today_drinks + (3/8))) as drinks_ans_avg, 
+    MAX(is_train) as is_train, MAX(is_dev) as is_dev, MAX(fold_num) as folds_num  
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify GROUP BY user_id, year_wave;
+
+ALTER TABLE ds4ud_wave_drinks_words_v9 ADD PRIMARY KEY (usryrwv_id);
+
+CREATE TABLE ds4ud_wave_drinks_essays_v9 ( 
+    user_id int(11), year_wave varchar(10), usryrwv_id varchar(16), 
+    drinks_avg double, drinks_ans_avg double, 
+    is_train int(2), is_dev int(2), fold_num int(2))
+
+INSERT INTO ds4ud_wave_drinks_essays_v9 
+    SELECT user_id, year_wave, CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg, AVG(SQRT(today_drinks + (3/8))) as drinks_ans_avg, 
+    MAX(is_train) as is_train, MAX(is_dev) as is_dev, MAX(fold_num) as folds_num  
+    FROM ds4ud_prospective.drinks_ema_essays_forecast_v9_stratify GROUP BY user_id, year_wave;
+
+ALTER TABLE ds4ud_wave_drinks_essays_v9 ADD PRIMARY KEY (usryrwv_id);
+
+
+CREATE TABLE feat$today_drinks$ds4ud_msgs_words_day_v9$message_id LIKE feat$roberta_la_meL19con$ds4ud_msgs_words_day_v9$message_id;
+
+INSERT INTO feat$today_drinks$ds4ud_msgs_words_day_v9$message_id (group_id, feat, value, group_norm) 
+    (SELECT message_id, "today_drinks" as feat, today_drinks as value, today_drinks as group_norm 
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify);
+
+
+CREATE TABLE feat$today_drinks$ds4ud_msgs_essays_day_v9$message_id LIKE feat$roberta_la_meL19con$ds4ud_msgs_words_day_v9$message_id;
+
+INSERT INTO feat$today_drinks$ds4ud_msgs_essays_day_v9$message_id (group_id, feat, value, group_norm) 
+    (SELECT message_id, "today_drinks" as feat, today_drinks as value, today_drinks as group_norm 
+    FROM ds4ud_prospective.drinks_ema_essays_forecast_v9_stratify);
+
+
+CREATE VIEW ds4ud_msgs_words_day_v9_U14 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND day_id <= 14
+
+------------------------------------------------------------
+
+CREATE VIEW ds4ud_msgs_words_day_v9_U14 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND day_id <= 14
+
+CREATE VIEW ds4ud_msgs_words_day_v9_U7 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND day_id <= 7
+
+CREATE VIEW ds4ud_msgs_words_day_v9_U3 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND day_id <= 3
+
+
+CREATE TABLE ds4ud_wave_drinks_words_v9_U14 ( 
+    user_id int(11), year_wave varchar(10), usryrwv_id varchar(16), 
+    drinks_avg double, drinks_ans_avg double, drinks_avg_14 double, drinks_avg_7 double, drinks_avg_3 double,  
+    is_train int(2), is_dev int(2), fold_num int(2)) engine=MyISAM;
+
+
+INSERT INTO ds4ud_wave_drinks_words_v9_U14 (user_id, year_wave, usryrwv_id, drinks_avg, drinks_ans_avg, is_train, is_dev, fold_num) 
+    SELECT user_id, year_wave, CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg, AVG(SQRT(today_drinks + (3/8))) as drinks_ans_avg, 
+    MAX(is_train) as is_train, MAX(is_dev) as is_dev, MAX(fold_num) as folds_num  
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify GROUP BY user_id, year_wave;
+
+
+UPDATE ds4ud_wave_drinks_words_v9_U14 A INNER JOIN (SELECT CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify WHERE day_id <= 14 GROUP BY user_id, year_wave) B
+    ON A.usryrwv_id = B.usryrwv_id 
+    SET A.drinks_avg_14 = B.drinks_avg;
+
+UPDATE ds4ud_wave_drinks_words_v9_U14 A INNER JOIN (SELECT CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg  
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify WHERE day_id <= 7 GROUP BY user_id, year_wave) B
+    ON A.usryrwv_id = B.usryrwv_id 
+    SET A.drinks_avg_7 = B.drinks_avg;
+
+
+UPDATE ds4ud_wave_drinks_words_v9_U14 A INNER JOIN (SELECT CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify WHERE day_id <= 3 GROUP BY user_id, year_wave) B
+    ON A.usryrwv_id = B.usryrwv_id 
+    SET A.drinks_avg_3 = B.drinks_avg;
+
+ALTER TABLE ds4ud_wave_drinks_words_v9_U14 ADD COLUMN drinks_avg_1 double;
+
+UPDATE ds4ud_wave_drinks_words_v9_U14 A INNER JOIN (SELECT CONCAT(user_id, '_', year_wave) as usryrwv_id,
+    AVG(today_drinks) as drinks_avg
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify WHERE day_id <= 1 GROUP BY user_id, year_wave) B
+    ON A.usryrwv_id = B.usryrwv_id
+    SET A.drinks_avg_1 = B.drinks_avg;
+
+------------------------------------------------------------
+
+## CREATE TABLE WITH STRICTLY 14 DAYS
+
+CREATE VIEW ds4ud_msgs_words_14days AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND CONCAT(user_id, '_', year_wave) IN (SELECT usryrwv_id FROM ds4ud_msgs_words_day_v9_U14 GROUP BY usryrwv_id HAVING COUNT(DISTINCT day_id) = 14) AND day_id <=14
+
+CREATE VIEW ds4ud_msgs_words_14daysU3 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND CONCAT(user_id, '_', year_wave) IN (SELECT usryrwv_id FROM ds4ud_msgs_words_day_v9_U14 GROUP BY usryrwv_id HAVING COUNT(DISTINCT day_id) = 14) AND day_id <=3
+
+CREATE VIEW ds4ud_msgs_words_14daysU1 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND CONCAT(user_id, '_', year_wave) IN (SELECT usryrwv_id FROM ds4ud_msgs_words_day_v9_U14 GROUP BY usryrwv_id HAVING COUNT(DISTINCT day_id) = 14) AND day_id <=1
+
+
+CREATE VIEW ds4ud_msgs_words_14daysU7 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND CONCAT(user_id, '_', year_wave) IN (SELECT usryrwv_id FROM ds4ud_msgs_words_day_v9_U14 GROUP BY usryrwv_id HAVING COUNT(DISTINCT day_id) = 14) AND day_id <=7
+
+
+
+# Strict 10 days
+
+CREATE VIEW ds4ud_msgs_words_10days AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND CONCAT(user_id, '_', year_wave) IN (SELECT usryrwv_id FROM ds4ud_msgs_words_day_v9_U14 GROUP BY usryrwv_id HAVING COUNT(DISTINCT day_id) >= 10) AND day_id <=10
+
+
+CREATE VIEW ds4ud_msgs_words_10daysU2 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND CONCAT(user_id, '_', year_wave) IN (SELECT usryrwv_id FROM ds4ud_msgs_words_day_v9_U14 GROUP BY usryrwv_id HAVING COUNT(DISTINCT day_id) >= 10) AND day_id <=2
+
+CREATE VIEW ds4ud_msgs_words_10daysU5 AS 
+    SELECT message_id, user_id, date, day_id, year_wave, CONCAT(user_id, '_', year_wave) AS usryrwv_id, 
+    CONCAT_WS('\n', CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5)), 
+                    CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5))) as message, 
+    number_of_responses 
+    FROM ds4udY1Y2_unified.ema_aggregated_prelim_v9 
+    WHERE LENGTH(CONCAT_WS(', ', TRIM(feeling_words_1_1), TRIM(feeling_words_1_2), TRIM(feeling_words_1_3), TRIM(feeling_words_1_4), TRIM(feeling_words_1_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_2_1), TRIM(feeling_words_2_2), TRIM(feeling_words_2_3), TRIM(feeling_words_2_4), TRIM(feeling_words_2_5))) + 
+        LENGTH(CONCAT_WS(', ', TRIM(feeling_words_3_1), TRIM(feeling_words_3_2), TRIM(feeling_words_3_3), TRIM(feeling_words_3_4), TRIM(feeling_words_3_5)))>0
+        AND CONCAT(user_id, '_', year_wave) IN (SELECT usryrwv_id FROM ds4ud_msgs_words_day_v9_U14 GROUP BY usryrwv_id HAVING COUNT(DISTINCT day_id) >= 10) AND day_id <=5
+
+
+CREATE TABLE ds4ud_wave_drinks_words_v9_10days ( 
+    user_id int(11), year_wave varchar(10), usryrwv_id varchar(16), 
+    drinks_avg double, drinks_ans_avg double, drinks_avg_10 double, drinks_avg_5 double, drinks_avg_2 double,  
+    is_train int(2), is_dev int(2), fold_num int(2)) engine=MyISAM;
+
+
+INSERT INTO ds4ud_wave_drinks_words_v9_10days (user_id, year_wave, usryrwv_id, drinks_avg, drinks_ans_avg, is_train, is_dev, fold_num) 
+    SELECT user_id, year_wave, CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg, AVG(SQRT(today_drinks + (3/8))) as drinks_ans_avg, 
+    MAX(is_train) as is_train, MAX(is_dev) as is_dev, MAX(fold_num) as folds_num  
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify GROUP BY user_id, year_wave;
+
+
+UPDATE ds4ud_wave_drinks_words_v9_10days A INNER JOIN (SELECT CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify WHERE day_id <= 10 GROUP BY user_id, year_wave) B
+    ON A.usryrwv_id = B.usryrwv_id 
+    SET A.drinks_avg_10 = B.drinks_avg;
+
+
+UPDATE ds4ud_wave_drinks_words_v9_10days A INNER JOIN (SELECT CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify WHERE day_id <= 5 GROUP BY user_id, year_wave) B
+    ON A.usryrwv_id = B.usryrwv_id 
+    SET A.drinks_avg_5 = B.drinks_avg;
+
+
+UPDATE ds4ud_wave_drinks_words_v9_10days A INNER JOIN (SELECT CONCAT(user_id, '_', year_wave) as usryrwv_id, 
+    AVG(today_drinks) as drinks_avg
+    FROM ds4ud_prospective.drinks_ema_words_forecast_v9_stratify WHERE day_id <= 2 GROUP BY user_id, year_wave) B
+    ON A.usryrwv_id = B.usryrwv_id 
+    SET A.drinks_avg_2 = B.drinks_avg;
