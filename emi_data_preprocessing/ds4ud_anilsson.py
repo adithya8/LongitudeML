@@ -2,6 +2,7 @@ import os
 import argparse
 import pickle
 from utils import add_to_path
+from copy import deepcopy
 
 add_to_path(__file__)
 from src import DLATKDataGetter
@@ -10,10 +11,10 @@ base_dict = dict(db="EMI", msg_table="ds4ud_words_ema", feature_table="feat$robe
                  outcome_table="ds4ud_words_wave_outcomes", outcome_field="")
 
 INPUT_DICT = {
-    "drinking_ans_avg": base_dict,
-    "affect_avg": base_dict,
-    "energy_avg": base_dict,
-    "wellbeing_avg": base_dict
+    "drinking_ans_avg": deepcopy(base_dict),
+    "affect_avg": deepcopy(base_dict),
+    "energy_avg": deepcopy(base_dict),
+    "wellbeing_avg": deepcopy(base_dict)
 }
 
 for outcome in INPUT_DICT:
