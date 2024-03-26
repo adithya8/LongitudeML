@@ -66,8 +66,8 @@ if __name__ == '__main__':
     
     # TODO: the function expects train, val and test. Correct this. 
     # Get the datasetDict (in HF datasetDict format) containing the embeddings across the temporal dimension for each sequence along with the labels and sequence numbers
-    datasetDict = get_datasetDict(train_data=dataDict['train_data'], val_data=dataDict['val_data'], test_data=dataDict['test_data'])
-    
+    datasetDict = get_datasetDict(train_data=dataDict['train_data'], val_data=dataDict['val_data'], test_data=dataDict['test_data'], val_folds=[0])
+    import pdb; pdb.set_trace()
     # Create a mask pattern for the sequence
     datasetDict = datasetDict.map(create_mask)
     
