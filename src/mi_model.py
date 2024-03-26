@@ -28,6 +28,7 @@ class recurrent(nn.Module):
         # TODO: Positional encoding
         self.model = []
         self.output_dropout = nn.Dropout(output_dropout)
+        self.ln = nn.LayerNorm(input_size)
         
         #TODO: Decouple the GRU layer from the linear layer. 
         self.model.append(nn.GRU(input_size = self.input_size, hidden_size = self.hidden_size, num_layers = self.num_layers, \
@@ -53,7 +54,7 @@ class recurrent(nn.Module):
             # assert isinstance(mask, torch.BoolTensor), "Mask should be of type BoolTensor" #TODO: This line throws assertion error although the mask is of type BoolTensor
             assert mask.shape == torch.Size(embeddings.shape[:2]), "Mask shape should be (batch_size, seq_len). Got {} for mask and {} for embeddings".format(mask.shape, embeddings.shape)
         
-        output_rep = embeddings
+        output_rep = self.ln(embeddings)
         for layer in self.model:
             
             if mask is not None:
