@@ -25,4 +25,6 @@ This dir contains scripts to process project specific data into a format ready t
 ```python voicemails_ema.py --outcome_field PCL11_minmax_ans_avg --save_filepath /data/avirinchipur/EMI/datadicts/rift_PCL11_minmax_ans_avg_roba32_rangel3u14.pkl --test_ratio 0.15 --val_ratio 0.10```
 
 
-```python voicemails_ema.py --outcome_field PCL11_minmax_ans_avg --save_filepath /data/avirinchipur/EMI/datadicts/voicemails_PCL11_minmax_ans_avg_roba64_rangel3u14.pkl --test_ratio 0.15 --val_ratio 0.0 --num_folds 10```
+```python voicemails_ema.py --outcome_field PCL11_minmax_ans_avg --save_filepath /data/avirinchipur/EMI/datadicts/voicemails_PCL11_minmax_ans_avg_roba64_rangel3u14_10folds.pkl --test_ratio 0.15 --val_ratio 0.0 --num_folds 10```
+
+```python voicemails_ema.py --outcome_field PCL11_minmax_ans_avg --save_filepath /data/avirinchipur/EMI/datadicts/voicemails_PCL11_minmax_ans_avg_roba128_rangel3u14_10folds.pkl --test_ratio 0.15 --val_ratio 0.0 --num_folds 10```
