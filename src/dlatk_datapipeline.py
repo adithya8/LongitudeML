@@ -90,8 +90,8 @@ class DLATKDataGetter:
         for query_id in common_qryids:
             gns_dict[query_id] = []
             for table in temp_gns_dict.keys():
-                gns_dict[query_id].append(temp_gns_dict[table][query_id])
-            
+                gns_dict[query_id].extend(temp_gns_dict[table][query_id])
+
         return gns_dict
 
 
@@ -202,13 +202,13 @@ class DLATKDataGetter:
                 labels: [[label1, label1, ...], [label2, label2, ...], ...],
                 query_ids: [[qry_idx1, qry_idx2, ...], [qry_idx1, qry_idx2, ...], ...]
             }
-            
         """
         gns_dict = self.get_features(where=features_where)
         outcomes_dict = self.get_outcomes(where=outcomes_where)
         qryid_seqid_mapping, qryid_timeids_mapping, longtype_encoder = self.get_qryid_seqid_timeids_mapping()
         
-        # maps seq_id to a list of (time_idx, qry_id, emb). Example - seq_id1: [(time_idx1_1, qry_id1, emb_list1), (time_idx1_2, qry_id2, emb_list2) ...]
+        # The following snippet:
+        # DESC: maps seq_id to a list of (time_idx, qry_id, emb). Example - seq_id1: [(time_idx1_1, qry_id1, emb_list1), (time_idx1_2, qry_id2, emb_list2) ...]
         seqid_qryid_mapping = dict() 
         for qry_id, seq_id in qryid_seqid_mapping.items():
             qry_id_long, seq_id_long = longtype_encoder['qryid_mappings'][qry_id], longtype_encoder['seqid_mappings'][seq_id]
@@ -216,7 +216,7 @@ class DLATKDataGetter:
             temp = (qryid_timeids_mapping[qry_id], qry_id_long, gns_dict[qry_id])
             seqid_qryid_mapping[seq_id_long].append(temp)
         
-        # Sort the qryids by time_idx for each seq_id
+        # DESC: Sort the qryids by time_idx for each seq_id
         for seq_id_long, qryid_timeids_list in seqid_qryid_mapping.items():
             seqid_qryid_mapping[seq_id_long] = sorted(qryid_timeids_list, key=lambda x: x[0])
         
