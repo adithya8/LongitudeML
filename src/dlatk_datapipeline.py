@@ -168,7 +168,7 @@ class DLATKDataGetter:
         return qryid_seqid_mapping, qryid_timeids_mapping, longtype_encoder
 
 
-    def get_outcomes(self, outcome_field:str=None, where:str='') -> dict:
+    def get_outcomes(self, outcome_field:str=None, correl_field:str=None, where:str='') -> dict:
         """
             Get the outcome values for the sequence ids.
             Returns
@@ -180,18 +180,21 @@ class DLATKDataGetter:
                     ...
                 }
         """
+        assert correl_field in [self.messageid_field, self.correl_field, None], "correl_fielf for outcome should be either messageid_field or correl_field"
         
         outcome_field = self.args.outcome_field if outcome_field is None else outcome_field
-        og = OutcomeGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=self.args.correl_field, outcome_table=self.args.outcome_table)
+        if correl_field is None: correl_field = self.args.correl_field
+        og = OutcomeGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=correl_field, outcome_table=self.args.outcome_table)
         outcomes = og.getGroupAndOutcomeValues(outcomeField=outcome_field, where=where)
         outcomes_dict = dict()
-        for seq_id, outcome_val in outcomes:
-            outcomes_dict[seq_id] = outcome_val
+        # row_id since it can be either message_id or seq_id
+        for row_id, outcome_val in outcomes:
+            outcomes_dict[row_id] = outcome_val
         
         return outcomes_dict 
 
         
-    def combine_features_and_outcomes(self, features_where:Union[str, List[str]]='', outcomes_where:str='') -> dict:
+    def combine_features_and_outcomes(self, outcomes_correl_field:str=None, features_where:Union[str, List[str]]='', outcomes_where:str='') -> dict:
         """
             Combine the features and outcomes into a single dictionary.
             Returns a dictionary of the following format:
@@ -204,7 +207,7 @@ class DLATKDataGetter:
             }
         """
         gns_dict = self.get_features(where=features_where)
-        outcomes_dict = self.get_outcomes(where=outcomes_where)
+        outcomes_dict = self.get_outcomes(where=outcomes_where, correl_field=outcomes_correl_field)
         qryid_seqid_mapping, qryid_timeids_mapping, longtype_encoder = self.get_qryid_seqid_timeids_mapping()
         
         # The following snippet:
@@ -221,22 +224,54 @@ class DLATKDataGetter:
             seqid_qryid_mapping[seq_id_long] = sorted(qryid_timeids_list, key=lambda x: x[0])
         
         seqids = set(qryid_seqid_mapping.values())
+        
+        if outcomes_correl_field == self.messageid_field:
+            # reformat outcomes_dict into nested dict with seq_id as key and {queryid: outcome} as value
+            outcomes_dict_reformatted = dict()
+            for qry_id in outcomes_dict.keys():
+                seq_id = qryid_seqid_mapping[qry_id]
+                if seq_id not in outcomes_dict_reformatted: outcomes_dict_reformatted[seq_id] = dict()
+                outcomes_dict_reformatted[seq_id][qry_id] = outcomes_dict[qry_id]
+            outcomes_dict = outcomes_dict_reformatted
+            
         dataset_dict = dict(seq_idx=[], time_ids=[], embeddings=[], labels=[], query_ids=[])
+        
         # Populate the dataset_dict
         for seq_id in seqids:
+            seq_id_long = longtype_encoder['seqid_mappings'][seq_id]
             if seq_id not in outcomes_dict:
                 print (f"Seq_id {seq_id} not found in outcomes_dict. Skipping!!")
                 continue
-            seq_id_long = longtype_encoder['seqid_mappings'][seq_id]
-            dataset_dict['seq_idx'].append(seq_id_long)
-            dataset_dict['time_ids'].append([x[0] for x in seqid_qryid_mapping[seq_id_long]])
-            dataset_dict['query_ids'].append([x[1] for x in seqid_qryid_mapping[seq_id_long]])
-            dataset_dict['embeddings'].append([[x[2] for x in seqid_qryid_mapping[seq_id_long]]])
-            # For multi instance learning, the outcome would be a list of labels for each instance (i.e., time_idx) of the sequence
-            dataset_dict['labels'].append([outcomes_dict[seq_id]]*len(seqid_qryid_mapping[seq_id_long]))
-                
-            # dataset_dict['labels'].append(outcomes_dict[seq_id])
+            temp_qry_ids = [longtype_encoder['qryid_mappings_rev'][x[1]] for x in seqid_qryid_mapping[seq_id_long]]
             
+            if outcomes_correl_field == self.messageid_field:
+                temp_embs = []
+                temp_labels = []
+                temp_time_ids = []
+                temp_query_ids = []
+                for idx, qry_id in enumerate(temp_qry_ids):
+                    if qry_id not in outcomes_dict[seq_id]:
+                        print (f"Query_id {qry_id} not found in outcomes_dict for seq_id {seq_id}. Skipping!!")
+                        continue
+                    temp_query_ids.append(qry_id)
+                    temp_embs.append(seqid_qryid_mapping[seq_id_long][idx])
+                    temp_labels.append(outcomes_dict[seq_id][qry_id])
+                    temp_time_ids.append(seqid_qryid_mapping[seq_id_long][idx][0])
+
+                if temp_query_ids is not None:
+                    dataset_dict['seq_idx'].append(seq_id_long)
+                    dataset_dict['time_ids'].append(temp_time_ids)
+                    dataset_dict['query_ids'].append(temp_query_ids)
+                    dataset_dict['embeddings'].append([temp_embs])
+                    dataset_dict['labels'].append(temp_labels) 
+            else:
+                dataset_dict['seq_idx'].append(seq_id_long)
+                dataset_dict['time_ids'].append([x[0] for x in seqid_qryid_mapping[seq_id_long]])
+                dataset_dict['query_ids'].append([x[1] for x in seqid_qryid_mapping[seq_id_long]])
+                dataset_dict['embeddings'].append([[x[2] for x in seqid_qryid_mapping[seq_id_long]]])
+                # For multi instance learning, the outcome would be a list of labels for each instance (i.e., time_idx) of the sequence
+                dataset_dict['labels'].append([outcomes_dict[seq_id]]*len(seqid_qryid_mapping[seq_id_long]))
+                            
         return dataset_dict, longtype_encoder
 
 
@@ -330,36 +365,36 @@ class DLATKDataGetter:
         return dict(train_data=train_datadict, val_data=val_datadict, test_data=test_datadict)        
 
 
-    def n_fold_split(self, dataset_dict:dict, folds:int=5, stratify=None) -> dict:
-        """
-            Splits the dataset into n folds
-        """
-        assert folds > 1, "folds must be greater than 1"
+    # def n_fold_split(self, dataset_dict:dict, folds:int=5, stratify=None) -> dict:
+    #     """
+    #         Splits the dataset into n folds
+    #     """
+    #     assert folds > 1, "folds must be greater than 1"
         
-        # if dataset is split into train and test, perform the nfold split on train set, else perform on the entire dataset
-        folds_idx = []
-        all_idx = list(range(len(dataset_dict['train_data']['embeddings']))) if 'train_data' in dataset_dict else list(range(len(dataset_dict['embeddings'])))
-        labels=None
-        if stratify:
-            labels = list(map(lambda x: x[-1], dataset_dict['train_data']['labels'])) if 'train_data' in dataset_dict else list(map(lambda x: x[-1], dataset_dict['labels']))
-            if isinstance(labels[0], float): labels = np.minimum((np.argsort(labels)/len(labels))//10, 4)
+    #     # if dataset is split into train and test, perform the nfold split on train set, else perform on the entire dataset
+    #     folds_idx = []
+    #     all_idx = list(range(len(dataset_dict['train_data']['embeddings']))) if 'train_data' in dataset_dict else list(range(len(dataset_dict['embeddings'])))
+    #     labels=None
+    #     if stratify:
+    #         labels = list(map(lambda x: x[-1], dataset_dict['train_data']['labels'])) if 'train_data' in dataset_dict else list(map(lambda x: x[-1], dataset_dict['labels']))
+    #         if isinstance(labels[0], float): labels = np.minimum((np.argsort(labels)/len(labels))//10, 4)
             
-            skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
-            for fold, (_, test_idx) in enumerate(skf.split(all_idx, labels)):
-                folds_idx.extend([(fold, idx) for idx in test_idx])
+    #         skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
+    #         for fold, (_, test_idx) in enumerate(skf.split(all_idx, labels)):
+    #             folds_idx.extend([(fold, idx) for idx in test_idx])
             
-            folds_idx = sorted(folds_idx, key=lambda x: x[1])
-            folds_idx = [x[0] for x in folds_idx]
-        else:
-            random.seed(42)
-            folds_idx = random.sample(range(folds), k=len(all_idx))
+    #         folds_idx = sorted(folds_idx, key=lambda x: x[1])
+    #         folds_idx = [x[0] for x in folds_idx]
+    #     else:
+    #         random.seed(42)
+    #         folds_idx = random.sample(range(folds), k=len(all_idx))
         
-        if 'train_data' in dataset_dict:
-            dataset_dict['train_data']['folds'] = folds_idx
-        else:
-            dataset_dict['folds'] = folds_idx
+    #     if 'train_data' in dataset_dict:
+    #         dataset_dict['train_data']['folds'] = folds_idx
+    #     else:
+    #         dataset_dict['folds'] = folds_idx
         
-        return dataset_dict
+    #     return dataset_dict
     
     
     def n_fold_split(self, dataset_dict:dict, longtype_encoder:dict, fold_column:str) -> dict:
