@@ -244,13 +244,13 @@ class DLATKDataGetter:
                 continue
             temp_qry_ids = [longtype_encoder['qryid_mappings_rev'][x[1]] for x in seqid_qryid_mapping[seq_id_long]]
             
-            if outcomes_correl_field == self.messageid_field:
+            if outcomes_correl_field == self.messageid_field: # Map datasetdict for seq-to-seq prediction task
                 temp_embs = []
                 temp_labels = []
                 temp_time_ids = []
                 temp_query_ids = []
                 for idx, qry_id in enumerate(temp_qry_ids):
-                    if qry_id not in outcomes_dict[seq_id]:
+                    if qry_id not in outcomes_dict[seq_id]:  # TODO: Add support to fill in default values when particular outcomes are missing
                         print (f"Query_id {qry_id} not found in outcomes_dict for seq_id {seq_id}. Skipping!!")
                         continue
                     temp_query_ids.append(qry_id)
@@ -258,13 +258,13 @@ class DLATKDataGetter:
                     temp_labels.append(outcomes_dict[seq_id][qry_id])
                     temp_time_ids.append(seqid_qryid_mapping[seq_id_long][idx][0])
 
-                if temp_query_ids is not None:
+                if temp_query_ids is not None: # Only add to datasetDict if there are valid query_ids with outcomes
                     dataset_dict['seq_idx'].append(seq_id_long)
                     dataset_dict['time_ids'].append(temp_time_ids)
                     dataset_dict['query_ids'].append(temp_query_ids)
                     dataset_dict['embeddings'].append([temp_embs])
                     dataset_dict['labels'].append(temp_labels) 
-            else:
+            else: # Map datadict for seq-to-outcome prediction task
                 dataset_dict['seq_idx'].append(seq_id_long)
                 dataset_dict['time_ids'].append([x[0] for x in seqid_qryid_mapping[seq_id_long]])
                 dataset_dict['query_ids'].append([x[1] for x in seqid_qryid_mapping[seq_id_long]])
