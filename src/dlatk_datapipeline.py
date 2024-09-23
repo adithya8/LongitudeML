@@ -2,7 +2,7 @@ import argparse
 from dataclasses import dataclass, field
 from functools import reduce
 import random
-from typing import List, Union
+from typing import List, Union, Tuple, Dict
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from dlatk.featureGetter import FeatureGetter
@@ -23,7 +23,7 @@ class DLATKDataGetter:
             timeid_field: str=field(metadata={'help': 'time index field name'}, default='time_id')
             feature_tables: str=field(metadata={'help': 'feature table name'})
             outcome_table: str=field(metadata={'help': 'outcome table name'})
-            outcome_field: str=field(metadata={'help': 'outcome field name'})
+            outcome_fields: Union[str, List[str]]=field(metadata={'help': 'outcome field name'})
         
         Usage
         -----
@@ -35,7 +35,7 @@ class DLATKDataGetter:
     msg_table: str=field(metadata={'help': 'table name'})
     feature_tables: Union[str, List[str]]=field(metadata={'help': 'feature tables name'})
     outcome_table: str=field(metadata={'help': 'outcome table name'})
-    outcome_field: str=field(metadata={'help': 'outcome field name'})
+    outcome_fields: Union[str, List[str]]=field(metadata={'help': 'outcome fields name'})
 
     db: str=field(metadata={'help': 'database name'}, default="EMI")
     messageid_field: str=field(metadata={'help': 'message id field name'}, default='message_id') #TODO: add alias="queryid_field"
@@ -50,14 +50,16 @@ class DLATKDataGetter:
         assert self.msg_table is not None, "msg_table must be specified"
         assert self.feature_tables is not None, "feature_tables must be specified"
         assert self.outcome_table is not None, "outcome_table must be specified"
-        assert self.outcome_field is not None, "outcome_field must be specified"
+        assert self.outcome_fields is not None, "outcome_field must be specified"
         
         self.args = argparse.Namespace(**self.__dict__)
-
-
-    def get_features(self, where='') -> dict:
+    
+    
+    def get_feature_tables(self, feature_tables:Union[List, str]=None, where:str='') -> Tuple[Dict, List]:
         """
-            Get query_id and embeddings from the feature table
+            Get query_id and all the features from feature tables. 
+            Uses the feature tables list if provided, else uses the default feature tables (from constructor).
+            Filters to queries which have features across all the feature tables.
             Returns
             -------
                 A dictionary of the following format:
@@ -66,13 +68,20 @@ class DLATKDataGetter:
                     query_id2: [emb1, emb2, ...],
                     ...
                 }
+                A list of feature names
+                [[feat1, feat2, ...]_table1, [feat1, feat2, ...]_table2, ...]
         """
-        if isinstance(self.feature_tables, str): self.feature_tables = [self.feature_tables]
+        if feature_tables is None:
+            feature_tables = [self.feature_tables] if isinstance(self.feature_tables, str) else self.feature_tables
+        else:
+            feature_tables = [feature_tables] if isinstance(feature_tables, str) else feature_tables
         fg = FeatureGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=self.args.messageid_field)
         temp_gns_dict = dict()
-        for table in self.feature_tables:
+        features_names = []
+        for table in feature_tables:
             fg.featureTable = table
             gns, feats = fg.getGroupNormsWithZeros(where=where)
+            features_names.append(feats)
             table_gns_dict = dict()
             for query_id in gns.keys():
                 table_gns_dict[query_id] = []
@@ -92,10 +101,29 @@ class DLATKDataGetter:
             for table in temp_gns_dict.keys():
                 gns_dict[query_id].extend(temp_gns_dict[table][query_id])
 
-        return gns_dict
+        return gns_dict, features_names
 
-
-    def get_qryid_seqid_timeids_mapping(self):
+    
+    def get_feature(self, feature:str, feature_table:str, where:str=None) -> Dict:
+        """
+            Get a specific feature from the feature table
+            Returns
+            -------
+                A dictionary of the following format:
+                {
+                    query_id1: [emb],
+                    query_id2: [emb],
+                    ...
+                }
+        """
+        fg = FeatureGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=self.args.messageid_field, featureTable=feature_table)
+        feat_value = fg.getGroupNormsForFeat(feat=feature, where=where)
+        feat_value = {k: v for k, v in feat_value}
+        
+        return feat_value
+        
+        
+    def get_qryid_seqid_timeids_mapping(self, table_name:str, where:str=None) -> Tuple[Dict, Dict]:
         """
             Get a mapping of sequence ids, query ids and its time idx. 
             The seq_id is unique to a sequnce of queries. The query ids map to a time_id which represents ordering of the queries in the sequence.
@@ -113,6 +141,99 @@ class DLATKDataGetter:
                     query_idx2: time_idx2,
                     ...
                 }
+        """
+        where = "{} IS NOT NULL AND {}".format(self.timeid_field, where) if where is not None else "{} IS NOT NULL".format(self.timeid_field)
+        
+        fg = FeatureGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=self.args.messageid_field)
+        #TODO: Change the query below to be more generic. This works only for DS4UD anilsson data
+        sql = fg.qb.create_select_query(table_name).set_fields([self.args.messageid_field, self.correl_field, self.timeid_field]).where(where)
+        sql_str = sql.toString()
+        if len(sql_str) > 750: sql_str = sql_str[:740] + "..." + sql_str[-10:]
+        print (sql_str)
+        
+        qryid_seqid_mapping, qryid_timeids_mapping = dict(), dict()
+        for qry_id, seq_id, time_idx in sql.execute_query():
+            if qry_id not in qryid_seqid_mapping: qryid_seqid_mapping[qry_id] = seq_id
+            if qry_id not in qryid_timeids_mapping: qryid_timeids_mapping[qry_id] = time_idx
+                     
+        print (f"Number of messages: {len(qryid_seqid_mapping)}")
+        
+        return qryid_seqid_mapping, qryid_timeids_mapping
+    
+
+    def get_long_lang_features(self, where:str='', include_num_tokens=True) -> Dict:
+        """
+            Gets language features from the feature tables.
+            Where clause can be used to filter the data and is run on the message table.
+            include_num_tokens: bool - whether to include the number of tokens in the language features. Default: True
+            Returns
+            -------
+                A dictionary of the following format:
+                {
+                    'seq_id': [sid1, sid2, ...],
+                    'time_ids': [[time_id1, time_id2, ...]_sid1, [time_id1, time_id2, ...]_sid2, ...],
+                    'embeddings': [[[emb1, emb2, ...]_tid1, [emb1, emb2, ...]_tid2, ...]_sid1, 
+                                   [[emb1, emb2, ...]_tid1, [emb1, emb2, ...]_tid2, ...]_sid2,
+                                  ... 
+                                  ],
+                    'embeddings_names': [[emb_name1, emb_name2, ...]_feattable1, [emb_name1, emb_name2, ...]_feattable2, ...],
+                    # num_tokens is optional 
+                    'num_tokens': [[num_tokens_tid1, num_tokens_tid2, ...]_sid1, 
+                                   [num_tokens_tid1, num_tokens_tid2, ...]_sid2,
+                                  ... 
+                                  ],
+                                   
+                }
+        """
+        
+        # STEP 1: Get dictionary containing query_id and embeddings 
+        gns_dict, features_names = self.get_feature_tables(where=where)
+        
+        # STEP 2: Get dictionary containing sequence_id as keys and list of tuples containing time_id and query_id as values
+        qryid_seqid_mapping, qryid_timeids_mapping = self.get_qryid_seqid_timeids_mapping(table_name=self.args.msg_table)
+        seqid_timeidsqryids_mapping = dict() # Create a dictionary with seq_id as key and list of (time_id, qry_id) as value
+        for qry_id, seq_id in qryid_seqid_mapping.items():
+            if seq_id not in seqid_timeidsqryids_mapping: seqid_timeidsqryids_mapping[seq_id] = []
+            seqid_timeidsqryids_mapping[seq_id].append((qryid_timeids_mapping[qry_id], qry_id))
+        
+        for seq_id in seqid_timeidsqryids_mapping.keys():
+            # Sort the time_ids for each seq_id
+            seqid_timeidsqryids_mapping[seq_id] = sorted(seqid_timeidsqryids_mapping[seq_id], key=lambda x: x[0])
+        
+        # STEP 3: Check if number_tokens is present. If present, get the number of tokens for each query_id like STEP 1
+        if include_num_tokens:
+            feature_table = f'feat$meta_1gram${self.args.msg_table}${self.args.messageid_field}'
+            num_tokens_dict = self.get_feature(feature="_total1grams", feature_table=feature_table, where=where)
+        
+        # STEP 4: Create the language features dictionary
+        long_lang_features_dict = dict(seq_id=[], time_ids=[], embeddings=[], num_tokens=[])
+        for seq_id in seqid_timeidsqryids_mapping.keys():
+            temp_timeids = [x[0] for x in seqid_timeidsqryids_mapping[seq_id]]
+            temp_qryids = [x[1] for x in seqid_timeidsqryids_mapping[seq_id]]
+            temp_embs = [gns_dict[qry_id] for qry_id in temp_qryids]
+            temp_num_tokens = [num_tokens_dict[qry_id] for qry_id in temp_qryids] if include_num_tokens else [None]*len(temp_qryids)
+            long_lang_features_dict['seq_id'].append(seq_id)
+            long_lang_features_dict['time_ids'].append(temp_timeids)
+            long_lang_features_dict['embeddings'].append(temp_embs)
+            long_lang_features_dict['num_tokens'].append(temp_num_tokens)
+        long_lang_features_dict['embeddings_names'] = features_names
+        
+        return long_lang_features_dict
+
+    
+    def long_type_encoding(self, qryid_seqid_mapping) -> Dict:
+        """
+            Long type encoding for query id, and seq id. 
+            Inputs
+            ------
+                qryid_seqid_mapping: A dictionary of the following format:
+                {
+                    query_idx1: seq_idx1,
+                    query_idx2: seq_idx2,
+                    ...
+                }
+            Returns
+            -------
                 longtype_encoder: A dictionary of the following format:
                 {
                     qryid_mappings: {
@@ -137,62 +258,145 @@ class DLATKDataGetter:
                     }
                 } 
         """
-        fg = FeatureGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=self.args.messageid_field)
-        #TODO: Add group_freq_thresh/ min query per sequence
-        #TODO: Add where to filter to only those sequences that have features
-        #TODO: Change the query below to be more generic. This works only for DS4UD anilsson data
-        sql = fg.qb.create_select_query(self.args.msg_table).set_fields([self.args.messageid_field, self.correl_field, self.timeid_field]).where("{} IS NOT NULL".format(self.timeid_field))
-        print (sql.toString())
-        
-        qryid_seqid_mapping, qryid_timeids_mapping = dict(), dict()
-        for qry_id, seq_id, time_idx in sql.execute_query():
-            if qry_id not in qryid_seqid_mapping: qryid_seqid_mapping[qry_id] = seq_id
-            if qry_id not in qryid_timeids_mapping: qryid_timeids_mapping[qry_id] = time_idx
         
         # Store the original query_id/seq_id mapping with corresponding long datatype query_id/seq_id. This step is necessary since strings can't be parsed into torch tensors directly.
         longtype_encoder = dict(qryid_mappings=dict(), seqid_mappings=dict(), qryid_mappings_rev=dict(), seqid_mappings_rev=dict())
         for qry_id, seq_id in qryid_seqid_mapping.items():
             if isinstance(qry_id, str):
-                longtype_encoder['qryid_mappings'][qry_id] = qry_id.isdigit() if qry_id.isdigit() else len(longtype_encoder['qryid_mappings']) + 1
+                #TODO: Should directly just assign Len() + 1. Should not be checking for isdigit() at all
+                longtype_encoder['qryid_mappings'][qry_id] = int(qry_id) if qry_id.isdigit() else len(longtype_encoder['qryid_mappings']) + 1
             else:
                 longtype_encoder['qryid_mappings'][qry_id] = qry_id
             if isinstance(seq_id, str):
                 if seq_id not in longtype_encoder['seqid_mappings']: 
-                    longtype_encoder['seqid_mappings'][seq_id] = seq_id.isdigit() if seq_id.isdigit() else len(longtype_encoder['seqid_mappings']) + 1
+                    longtype_encoder['seqid_mappings'][seq_id] = int(seq_id) if seq_id.isdigit() else len(longtype_encoder['seqid_mappings']) + 1
             else:
-                longtype_encoder['seqid_mappings']: longtype_encoder['seqid_mappings'][seq_id] = seq_id
+                longtype_encoder['seqid_mappings'][seq_id] = seq_id
             longtype_encoder['qryid_mappings_rev'][longtype_encoder['qryid_mappings'][qry_id]] = qry_id
             longtype_encoder['seqid_mappings_rev'][longtype_encoder['seqid_mappings'][seq_id]] = seq_id                
         print (f"Number of messages: {len(qryid_seqid_mapping)}")
         
-        return qryid_seqid_mapping, qryid_timeids_mapping, longtype_encoder
+        return longtype_encoder
 
 
-    def get_outcomes(self, outcome_field:str=None, correl_field:str=None, where:str='') -> dict:
+    def get_outcomes(self, outcome_fields:Union[List[str], str]=None, correl_field:str=None, where:str='') -> Dict:
         """
             Get the outcome values for the sequence ids.
+            outcome_fields: Union[str, List[str]] - outcome field name(s). If not provided as input, uses the default outcome field(s) from the constructor.
+            correl_field: str - correlation field name. If not provided as input, uses the default correl_field from the constructor.
+            where: str - where clause to filter the data from the outcome table.
             Returns
             -------
                 A dictionary of the following format:
                 {
-                    seq_id1: outcome_val1,
-                    seq_id2: outcome_val2,
+                    seq_id1: [outcome1_val, outcome2_val, ...],
+                    seq_id2: [outcome1_val, outcome2_val, ...],
                     ...
                 }
         """
-        assert correl_field in [self.messageid_field, self.correl_field, None], "correl_fielf for outcome should be either messageid_field or correl_field"
+        assert correl_field in [self.messageid_field, self.correl_field, None], "correl_field for outcome should be either messageid_field or correl_field"
         
-        outcome_field = self.args.outcome_field if outcome_field is None else outcome_field
+        if outcome_fields is None: outcome_fields = self.args.outcome_fields
         if correl_field is None: correl_field = self.args.correl_field
-        og = OutcomeGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=correl_field, outcome_table=self.args.outcome_table)
-        outcomes = og.getGroupAndOutcomeValues(outcomeField=outcome_field, where=where)
-        outcomes_dict = dict()
-        # row_id since it can be either message_id or seq_id
-        for row_id, outcome_val in outcomes:
-            outcomes_dict[row_id] = outcome_val
         
-        return outcomes_dict 
+        if isinstance(outcome_fields, str): outcome_fields = [outcome_fields]
+        
+        og = OutcomeGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=correl_field, outcome_table=self.args.outcome_table, group_freq_thresh=0)
+        temp_outcomes_dict = dict()
+        all_qry_ids = set()
+        for outcome in outcome_fields:
+            temp_outcomes_dict[outcome] = {}
+            outcomes = og.getGroupAndOutcomeValues(outcomeField=outcome, where=where)
+            outcomes = dict(outcomes)
+            temp_outcomes_dict[outcome] = outcomes
+            all_qry_ids.update(outcomes.keys())
+        
+        outcomes_dict = dict()
+        for qry_id in all_qry_ids:
+            outcomes_dict[qry_id] = [temp_outcomes_dict[outcome][qry_id] if qry_id in temp_outcomes_dict[outcome] else None for outcome in outcome_fields ]
+        
+        return outcomes_dict
+    
+    
+    def get_long_outcomes(self, outcome_fields:Union[str, List[str]]=None, where:str='') -> Dict:
+        """
+            Gets outcome values for the listed outcome fields.
+            Where clause can be used to filter the data from the outcome table.
+            Returns
+            -------
+                A dictionary of the following format:
+                {
+                    'seq_id': [sid1, sid2, ...],
+                    'time_ids': [[time_id1, time_id2, ...]_sid1, [time_id1, time_id2, ...]_sid2, ...],
+                    'outcomes': [[outcome1, outcome2, ...]_sid1, [outcome1, outcome2, ...]_sid2, ...],
+                    'outcomes_names': [outcome_name1, outcome_name2, ...]
+                }
+            outcome values that are NULL for a (sequence_id, time_id) is replaced with None
+        """
+        
+        # STEP 1: Get the outcome values for the query ids in a dict
+        outcomes_dict = self.get_outcomes(outcome_fields=outcome_fields, correl_field=self.messageid_field, where=where)
+                
+        # STEP 2: Get dictionary containing sequence_id as keys and list of tuples containing time_id and query_id as values
+        where_stmt = "{} IN ({})".format(self.messageid_field, ",".join(map(lambda x: f"'{x}'", outcomes_dict.keys())))
+        qryid_seqid_mapping, qryid_timeids_mapping = self.get_qryid_seqid_timeids_mapping(table_name=self.args.outcome_table, where=where_stmt)
+        seqid_timeidsqryids_mapping = dict() # Create a dictionary with seq_id as key and list of (time_id, qry_id) as value
+        for qry_id, seq_id in qryid_seqid_mapping.items():
+            if seq_id not in seqid_timeidsqryids_mapping: seqid_timeidsqryids_mapping[seq_id] = []
+            seqid_timeidsqryids_mapping[seq_id].append((qryid_timeids_mapping[qry_id], qry_id))
 
+        for seq_id in seqid_timeidsqryids_mapping.keys():
+            # Sort the time_ids for each seq_id
+            seqid_timeidsqryids_mapping[seq_id] = sorted(seqid_timeidsqryids_mapping[seq_id], key=lambda x: x[0])
+        
+        # STEP 3: Create the outcome data dictionary. Set the outcome field(s) missing for a (seq_id, time_id) pair as None
+        long_outcomes_dict = dict(seq_id=[], time_ids=[], outcomes=[])
+        for seq_id in seqid_timeidsqryids_mapping.keys():
+            temp_timeids = [x[0] for x in seqid_timeidsqryids_mapping[seq_id]]
+            temp_qryids = [x[1] for x in seqid_timeidsqryids_mapping[seq_id]]
+            temp_outcomes = [outcomes_dict[qry_id] for qry_id in temp_qryids]
+            long_outcomes_dict['seq_id'].append(seq_id)
+            long_outcomes_dict['time_ids'].append(temp_timeids)
+            long_outcomes_dict['outcomes'].append(temp_outcomes)
+        long_outcomes_dict['outcomes_names'] = outcome_fields
+        
+        return long_outcomes_dict
+    
+
+    def intersect_seqids(self, long_dict1:Dict, long_dict2:Dict) -> Tuple[Dict, Dict]:
+        """
+            Intersect the sequence ids in two dictionaries (features/outcomes).
+            Returns
+            -------
+                The dictionaries with only the common sequence ids
+        """
+        # NOTE: there might be a need to run this for a number of dictionaries representing different modalities. 
+        # NOTE: Hence we can consider passing a *args to this function 
+        
+        common_seqids = set(long_dict1['seq_id']).intersection(set(long_dict2['seq_id']))
+        
+        idx_to_drop = []
+        for idx, seq_id1 in enumerate(long_dict1['seq_id']):
+            if seq_id1 not in common_seqids: idx_to_drop.append(idx)
+            
+        num_seq_ids = len(long_dict1['seq_id'])        
+        for key in long_dict1.keys():
+            if len(long_dict1[key]) == num_seq_ids: # Only drop the indices if the length of the list is same as the number of sequence ids
+                for idx in idx_to_drop[::-1]:
+                    long_dict1[key].pop(idx) 
+        
+        idx_to_drop = []
+        for idx, seq_id2 in enumerate(long_dict2['seq_id']):
+            if seq_id2 not in common_seqids: idx_to_drop.append(idx)
+
+        num_seq_ids = len(long_dict2['seq_id'])             
+        for key in long_dict2.keys():
+            if len(long_dict2[key]) == num_seq_ids: # Only drop the indices if the length of the list is same as the number of sequence ids
+                for idx in idx_to_drop[::-1]:
+                    long_dict2[key].pop(idx)
+        
+        return long_dict1, long_dict2
+            
         
     def combine_features_and_outcomes(self, outcomes_correl_field:str=None, features_where:Union[str, List[str]]='', outcomes_where:str='') -> dict:
         """
@@ -206,7 +410,7 @@ class DLATKDataGetter:
                 query_ids: [[qry_idx1, qry_idx2, ...], [qry_idx1, qry_idx2, ...], ...]
             }
         """
-        gns_dict = self.get_features(where=features_where)
+        gns_dict = self.get_feature_tables(where=features_where)
         outcomes_dict = self.get_outcomes(where=outcomes_where, correl_field=outcomes_correl_field)
         qryid_seqid_mapping, qryid_timeids_mapping, longtype_encoder = self.get_qryid_seqid_timeids_mapping()
         
