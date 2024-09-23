@@ -253,10 +253,10 @@ class DLATKDataGetter:
                     if qry_id not in outcomes_dict[seq_id]:  # TODO: Add support to fill in default values when particular outcomes are missing
                         print (f"Query_id {qry_id} not found in outcomes_dict for seq_id {seq_id}. Skipping!!")
                         continue
-                    temp_query_ids.append(qry_id)
-                    temp_embs.append(seqid_qryid_mapping[seq_id_long][idx])
-                    temp_labels.append(outcomes_dict[seq_id][qry_id])
                     temp_time_ids.append(seqid_qryid_mapping[seq_id_long][idx][0])
+                    temp_query_ids.append(longtype_encoder['qryid_mappings'][qry_id])
+                    temp_embs.append(seqid_qryid_mapping[seq_id_long][idx][2])
+                    temp_labels.append(outcomes_dict[seq_id][qry_id])
 
                 if temp_query_ids is not None: # Only add to datasetDict if there are valid query_ids with outcomes
                     dataset_dict['seq_idx'].append(seq_id_long)
