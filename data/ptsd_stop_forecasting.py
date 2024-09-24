@@ -10,8 +10,6 @@ from src import DLATKDataGetter
 # Datadict location on Hercules:
 # /data/avirinchipur/EMI/datadicts/
 
-#TODO: Get all Language samples even if they dont have an outcome in the future. 
-
 def parse_args():
     parser = argparse.ArgumentParser(description='Get data from DLATK from PTSD STOP tables')
     parser.add_argument('--outcome_field', type=str, default='PCL_avg', help='Outcome field', choices=INPUT_DICT.keys())
