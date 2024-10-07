@@ -1,5 +1,5 @@
-from .mi_datamodule import get_datasetDict, create_mask, default_collate_fn, MIDataLoaderModule
-from .mi_model import recurrent
+from .mi_datamodule import get_datasetDict, get_dataset, create_mask, default_collate_fn, MIDataLoaderModule
+from .mi_model import recurrent, AutoRegressiveTransformer
 from .mi_lightningmodule import MILightningModule
 from .mi_args import get_data_args, get_model_args, get_training_args, get_default_args
 

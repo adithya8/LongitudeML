@@ -333,6 +333,7 @@ class DLATKDataGetter:
                 }
             outcome values that are NULL for a (sequence_id, time_id) is replaced with None
         """
+        if outcome_fields is None: outcome_fields = self.args.outcome_fields
         
         # STEP 1: Get the outcome values for the query ids in a dict
         outcomes_dict = self.get_outcomes(outcome_fields=outcome_fields, correl_field=self.messageid_field, where=where)
@@ -394,9 +395,11 @@ class DLATKDataGetter:
             if len(long_dict2[key]) == num_seq_ids: # Only drop the indices if the length of the list is same as the number of sequence ids
                 for idx in idx_to_drop[::-1]:
                     long_dict2[key].pop(idx)
-        
+
         return long_dict1, long_dict2
-            
+    
+    
+    # TODO: Add methods to print summary stats of the longitudinal data        
         
     def combine_features_and_outcomes(self, outcomes_correl_field:str=None, features_where:Union[str, List[str]]='', outcomes_where:str='') -> dict:
         """

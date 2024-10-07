@@ -5,7 +5,7 @@ import torch.nn as nn
 import pytorch_lightning as pl
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 
-from .mi_model import recurrent
+from .mi_model import recurrent, AutoRegressiveTransformer
 from .mi_eval import mi_mse, mi_smape, mi_pearsonr, mi_mae
 
 class MILightningModule(pl.LightningModule):
@@ -15,9 +15,11 @@ class MILightningModule(pl.LightningModule):
         # TODO: Separate model_args from trainer_args (May be)
         self.args = args
         # TODO: Move model instantiation outside LightningModule. 
-        self.model = recurrent(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, \
-                                 num_layers = args.num_layers, dropout = args.dropout, output_dropout=args.output_dropout, \
-                                 bidirectional = args.bidirectional)
+        self.model = AutoRegressiveTransformer(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, 
+                               num_outcomes = args.num_outcomes, num_layers = args.num_layers,  
+                               dropout = args.dropout, output_dropout=args.output_dropout, 
+                               bidirectional = args.bidirectional 
+                               )
         
         self.metrics_fns = {}
         if args.num_classes>2:
@@ -26,7 +28,7 @@ class MILightningModule(pl.LightningModule):
             self.loss = nn.BCEWithLogitsLoss()
         elif args.num_classes==1:
             self.loss = mi_mse #nn.MSELoss()
-            self.metrics_fns = {'smape': mi_smape, 'pearsonr': mi_pearsonr, 'mae': mi_mae}
+            # self.metrics_fns = {'smape': mi_smape, 'pearsonr': mi_pearsonr, 'mae': mi_mae}
         else:
             raise ValueError("Invalid number of classes")
 
@@ -38,7 +40,7 @@ class MILightningModule(pl.LightningModule):
         process_metric_dict = dict([(i, []) for i in self.metrics_fns])
         self.epoch_metrics = dict(train=deepcopy(process_metric_dict), val=deepcopy(process_metric_dict), test=deepcopy(process_metric_dict))
         # Store predictions and targets. Keys: preds, target since pytorch metrics use these arguments
-        labels_dict = dict(preds=[], target=[], mask=[], infill_mask=[])
+        labels_dict = dict(preds=[], outcomes=[], infill_outcomes_mask=[], infill_lang_mask=[])
         self.labels = dict(train=deepcopy(labels_dict), val=deepcopy(labels_dict), test=deepcopy(labels_dict))
 
 
@@ -50,12 +52,13 @@ class MILightningModule(pl.LightningModule):
         """
             Unpack the batch and return the model inputs separated from the other batch tensors
         """
-        batch_labels = batch.pop('labels', None)
+        batch_labels = batch.pop('outcomes', None)
         query_id = batch.pop('query_ids', None)
-        seq_id = batch.pop('seq_idx', None)
+        seq_id = batch.pop('seq_id', None) if 'seq_id' in batch else batch.pop('seq_idx', None)
         time_idx = batch.pop('time_ids', None)
-        infill_mask = batch.pop('infill_mask', None)
-        return batch, batch_labels, seq_id, time_idx, infill_mask
+        # rename 'infill_lang_mask' to 'mask'
+        if 'infill_lang_mask' in batch: batch['mask'] = batch.pop('infill_lang_mask')
+        return batch, batch_labels, seq_id, time_idx
     
     
     def calculate_metrics(self, input:torch.Tensor, target:torch.Tensor, mask:torch.Tensor=None) -> Dict:
@@ -66,15 +69,16 @@ class MILightningModule(pl.LightningModule):
 
     
     def training_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        batch, batch_labels, seq_id, time_idx, infill_mask = self.unpack_batch_model_inputs(batch)
+        batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
         # Loss only calculates for the valid timesteps 
-        batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['mask'])
-        step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['mask'])
+        batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['infill_outcomes_mask'])
+        step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['infill_outcomes_mask'])
         log_metrics_dict = {'train_loss': batch_loss}
         log_metrics_dict.update({'train_{}'.format(key): val for key, val in step_metrics.items()})
         self.log_dict(log_metrics_dict, on_step=False, on_epoch=True)
-        step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels, 'mask': batch['mask'], 'infill_mask': infill_mask, 'step': torch.tensor([self.global_step])}
+        step_output = {'loss': batch_loss, 'pred': batch_output, 'outcomes': batch_labels, 'infill_outcomes_mask': batch['infill_outcomes_mask'], 
+                       'infill_lang_mask': batch['mask'], 'step': torch.tensor([self.global_step])}
         if seq_id is not None: step_output.update({'seq_id': seq_id})
         step_output.update(step_metrics)
         self.step_outputs['train'].append(step_output)
@@ -82,14 +86,15 @@ class MILightningModule(pl.LightningModule):
     
     
     def validation_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        batch, batch_labels, seq_id, time_idx, infill_mask = self.unpack_batch_model_inputs(batch)
+        batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
-        batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['mask'])
-        step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['mask'])
+        batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['infill_outcomes_mask'])
+        step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['infill_outcomes_mask'])
         log_metrics_dict = {'val_loss': batch_loss}
         log_metrics_dict.update({'val_{}'.format(key): val for key, val in step_metrics.items()})
         self.log_dict(log_metrics_dict, on_step=False, on_epoch=True)
-        step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels, 'mask': batch['mask'], 'infill_mask': infill_mask, 'step': torch.tensor([self.global_step])}
+        step_output = {'loss': batch_loss, 'pred': batch_output, 'outcomes': batch_labels, 'infill_outcomes_mask': batch['infill_outcomes_mask'], 
+                       'infill_lang_mask': batch['mask'], 'step': torch.tensor([self.global_step])}
         if seq_id is not None: step_output.update({'seq_id': seq_id})
         step_output.update(step_metrics)
         self.step_outputs['val'].append(step_output) 
@@ -97,14 +102,15 @@ class MILightningModule(pl.LightningModule):
     
     
     def test_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        batch, batch_labels, seq_id, time_idx, infill_mask = self.unpack_batch_model_inputs(batch)
+        batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
         batch_loss = self.loss(input=batch_output, target=batch_labels)
         step_metrics = self.calculate_metrics(batch_output, batch_labels)
         log_metrics_dict = {'test_loss': batch_loss}
         log_metrics_dict.update({'test_{}'.format(key): val for key, val in step_metrics.items()})
         self.log_dict(log_metrics_dict, on_step=False, on_epoch=True)
-        step_output = {'loss': batch_loss, 'pred': batch_output, 'labels': batch_labels, 'mask': batch['mask'], 'infill_mask': infill_mask}
+        step_output = {'loss': batch_loss, 'pred': batch_output, 'outcomes': batch_labels, 
+                       'infill_outcomes_mask': batch['infill_outcomes_mask'], 'infill_lang_mask': batch['mask'] }
         if seq_id is not None: step_output.update({'seq_id': seq_id})
         step_output.update(step_metrics)
         self.step_outputs['test'].append(step_output) 
@@ -112,9 +118,10 @@ class MILightningModule(pl.LightningModule):
 
 
     def predict_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        batch, batch_labels, seq_id, time_idx, infill_mask = self.unpack_batch_model_inputs(batch)
+        batch, batch_labels, seq_id, time_idx = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
-        return {'pred': batch_output, 'labels': batch_labels, 'seq_id': seq_id, 'mask': batch['mask'], 'infill_mask': batch['infill_mask']}
+        return {'pred': batch_output, 'outcomes': batch_labels, 'seq_id': seq_id, 
+                'infill_outcomes_mask': batch['infill_outcomes_mask'], 'infill_lang_mask': batch['mask']}
 
 
     def process_epoch_end(self, step_outputs) -> Dict:
@@ -139,16 +146,16 @@ class MILightningModule(pl.LightningModule):
             self.epoch_loss[process].append(avg_loss.item())
         if 'pred' in cat_outputs:
             self.labels[process]['preds'].append(cat_outputs['pred'])
-        if 'labels' in cat_outputs:
-            self.labels[process]['target'].append(cat_outputs['labels'])
-        if 'mask' in cat_outputs:
-            self.labels[process]['mask'].append(cat_outputs['mask'])
-        if 'infill_mask' in cat_outputs:
-            self.labels[process]['infill_mask'].append(cat_outputs['infill_mask'])
+        if 'outcomes' in cat_outputs:
+            self.labels[process]['outcomes'].append(cat_outputs['outcomes'])
+        if 'infill_outcomes_mask' in cat_outputs:
+            self.labels[process]['infill_outcomes_mask'].append(cat_outputs['infill_outcomes_mask'])
+        if 'infill_lang_mask' in cat_outputs:
+            self.labels[process]['infill_lang_mask'].append(cat_outputs['infill_lang_mask'])
         if self.metrics_fns:
             pred_flatten = torch.cat([i.view(-1, 1) for i in cat_outputs['pred']], dim=0)
-            target_flatten = torch.cat([i.view(-1, 1) for i in cat_outputs['labels']], dim=0)
-            mask_flatten = torch.cat([i.view(-1, 1) for i in cat_outputs['mask']], dim=0)
+            target_flatten = torch.cat([i.view(-1, 1) for i in cat_outputs['outcomes']], dim=0)
+            mask_flatten = torch.cat([i.view(-1, 1) for i in cat_outputs['infill_lang_mask']], dim=0)
             for metric_name, fn in self.metrics_fns.items():
                 self.epoch_metrics[process][metric_name].append(fn(input=pred_flatten, target=target_flatten, mask=mask_flatten))
 

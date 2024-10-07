@@ -19,6 +19,8 @@ def get_model_args(parser: argparse.ArgumentParser):
                         help='size of the embeddings')
     parser.add_argument('--num_classes', type=int, default=1, #required=True,
                         help='number of classes (default: 2)')
+    parser.add_argument('--num_outcomes', type=int, default=1, #required=True,
+                        help='Number of outcomes (default: 1)')
     parser.add_argument('--hidden_size', type=int, default=128, #required=True,
                         help='hidden size (default: 128)')
     parser.add_argument('--num_layers', type=int, default=1,
