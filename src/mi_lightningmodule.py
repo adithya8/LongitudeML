@@ -15,10 +15,17 @@ class MILightningModule(pl.LightningModule):
         # TODO: Separate model_args from trainer_args (May be)
         self.args = args
         # TODO: Move model instantiation outside LightningModule. 
-        self.model = AutoRegressiveTransformer(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, 
+        if args.model_type == 'recurrent':
+            self.model = recurrent(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, 
+                                   num_outcomes = args.num_outcomes, num_layers = args.num_layers,  
+                                   dropout = args.dropout, output_dropout=args.output_dropout, 
+                                   bidirectional = args.bidirectional 
+                                   )
+        elif args.model_type == 'trns':
+            self.model = AutoRegressiveTransformer(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, 
                                num_outcomes = args.num_outcomes, num_layers = args.num_layers,  
                                dropout = args.dropout, output_dropout=args.output_dropout, 
-                               bidirectional = args.bidirectional 
+                               bidirectional = args.bidirectional, num_heads=args.num_heads, max_len=args.max_len 
                                )
         
         self.metrics_fns = {}

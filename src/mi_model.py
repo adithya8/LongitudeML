@@ -79,12 +79,34 @@ class recurrent(nn.Module):
 
         return output
     
+
+class PositionalEncoding(nn.Module):
+    """
+        Adds learnable positional encoding to the input embeddings.
+    """
+    def __init__(self, d_model:int, max_len:int):
+        super(PositionalEncoding, self).__init__()
+        self.d_model = d_model
+        self.max_len = max_len
+        self.init_pe()
+    
+    def init_pe(self):
+        self.positional_embedding = torch.nn.Embedding(self.max_len, self.d_model)
+        
+    def forward(self, x):
+        try:
+            x = x + self.positional_embedding(torch.arange(x.shape[1], device=x.device))
+        except:
+            import pdb; pdb.set_trace()
+        return x
+
     
 class AutoRegressiveTransformer(nn.Module):
     """
         
     """
-    def __init__(self, input_size, hidden_size, num_classes, num_outcomes=1, num_layers=1, dropout=0.0, bidirectional=False, output_dropout=0.0, num_heads=1):
+    def __init__(self, input_size:int, hidden_size:int, num_classes:int, num_outcomes:int=1, num_layers:int=1, 
+                 dropout:float=0.0, bidirectional:bool=False, output_dropout:float=0.0, num_heads:int=4, max_len:int=120):
         super(AutoRegressiveTransformer, self).__init__()
         
         self.input_size = input_size
@@ -96,10 +118,12 @@ class AutoRegressiveTransformer(nn.Module):
         self.num_classes = num_classes
         self.num_outcomes = num_outcomes
         self.num_heads = num_heads
+        self.max_len = max_len
         self.init_model()
     
     def init_model(self):
         self.model = []
+        self.positional_encoding = PositionalEncoding(self.input_size, self.max_len)
         self.output_dropout_layer = nn.Dropout(self.output_dropout)
         # self.ln = nn.LayerNorm(self.input_size) # layernorm is already present in the TransformerEncoderLayer
         
@@ -127,7 +151,7 @@ class AutoRegressiveTransformer(nn.Module):
             # assert isinstance(mask, torch.BoolTensor), "Mask should be of type BoolTensor" #TODO: This line throws assertion error although the mask is of type BoolTensor
             assert pad_mask.shape == torch.Size(embeddings.shape[:2]), "Mask shape should be (batch_size, seq_len). Got {} for mask and {} for embeddings".format(pad_mask.shape, embeddings.shape)
             
-        output_rep = embeddings
+        output_rep = embeddings + self.positional_encoding(embeddings)
         # Use src_key_padding_mask to mask out the padded tokens
         # It should be of size (batch_size, seq_len). Positions set to -inf are not used for the attention mechanism if float. Positions set to True are not used if bool.
         # TODO: Modify embeddings of infilled Language alone

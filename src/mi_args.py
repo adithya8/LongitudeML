@@ -13,8 +13,8 @@ def get_data_args(parser: argparse.ArgumentParser):
 
 def get_model_args(parser: argparse.ArgumentParser):
     # model_args: arguments related to model
-    parser.add_argument('--model', type=str, default='gru',
-                        help='model type (default: gru)')
+    parser.add_argument('--model_type', type=str, default='gru',
+                        help='model type (default: gru)', choices=['gru', 'trns'])
     parser.add_argument('--input_size', type=int, default=768, #required=True, 
                         help='size of the embeddings')
     parser.add_argument('--num_classes', type=int, default=1, #required=True,
@@ -25,12 +25,16 @@ def get_model_args(parser: argparse.ArgumentParser):
                         help='hidden size (default: 128)')
     parser.add_argument('--num_layers', type=int, default=1,
                         help='number of layers (default: 1)')
-    parser.add_argument('--dropout', type=float, default=0.15,
-                        help='dropout (default: 0.0)')
-    parser.add_argument('--output_dropout', type=float, default=0.3,
-                        help='output layer dropout (default: 0.3)')
+    parser.add_argument('--dropout', type=float, default=0.10,
+                        help='dropout (default: 0.10)')
+    parser.add_argument('--output_dropout', type=float, default=0.10,
+                        help='output layer dropout (default: 0.10)')
     parser.add_argument('--bidirectional', action='store_true', default=False,
                         help='bidirectional (default: False)')
+    parser.add_argument('--num_heads', type=int, default=2,
+                        help='number of heads for transformer model (default: 2)')
+    parser.add_argument('--max_len', type=int, default=130,
+                        help='maximum sequence length for transformer model (default: 130)')
 
 
 def get_training_args(parser: argparse.ArgumentParser):
