@@ -1,3 +1,7 @@
+"""
+    This script is responsible for reading the features, outcomes tables from MySQL database 
+    and creating a dataset suitable for forecasting PCL scores 1, 3, 7 days ahead.
+"""
 from copy import deepcopy
 from utils import add_to_path
 add_to_path(__file__)
@@ -154,11 +158,8 @@ if __name__ == '__main__':
     print ("Long Lang features and Long Outcomes read.")
     # NOTE: This data is not already split for train/ val/ test. Perform filtering and train-val split here
     
-    # CHECK for user 3586 before and after creating mask
-    # import pdb; pdb.set_trace()
     long_lang_features = long_lang_features.map(create_lang_mask)
     print ("Lang mask pattern created.")
-    # import pdb; pdb.set_trace()
     
     long_outcomes = long_outcomes.map(create_outcomes_mask)
     print ("Outcomes mask pattern created.")    
