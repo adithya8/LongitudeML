@@ -76,13 +76,13 @@ def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask
     epsilon = 1e-8
     
     if reduction == "mean":
-        loss = torch.sum(torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask, axis=1)/torch.sum(mask, axis=1)
+        loss = 2*torch.sum(torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask, axis=1)/torch.sum(mask, axis=1)
         loss = torch.mean(loss, axis=0).mean()
     elif reduction == "sum":
-        loss = torch.sum(torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask, axis=1).sum(axis=0)
+        loss = 2*torch.sum(torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask, axis=1).sum(axis=0)
         loss = torch.mean(loss, axis=0).mean()
     elif reduction == "none" or reduction is None:
-        loss = torch.abs(input - target)/(torch.abs(input) + torch.abs(target))*mask
+        loss = 2*torch.abs(input - target)/(torch.abs(input) + torch.abs(target))*mask
         
     return loss
 
@@ -98,11 +98,13 @@ def mi_pearsonr(input:torch.Tensor, target:torch.Tensor, mask:torch.Tensor=None)
     num_outcomes = input.shape[-1]
     pearson_rs = []
     for i in range(num_outcomes):
-        input_ = (input[:, :, i][mask[:, :, i]==1]).flatten()
-        target_ = (target[:, :, i][mask[:, :, i]==1]).flatten()
-        axis_pearsonr = tm_reg.pearson_corrcoef(input_, target_)
-        pearson_rs.append(axis_pearsonr)
+        # Compute Pearson correlation coefficient for each outcome
+        input_ = (input[:, :, i][mask[:, :, i]==1])
+        target_ = (target[:, :, i][mask[:, :, i]==1])
+        seq_pearsonr = tm_reg.pearson_corrcoef(input_.T, target_.T) # Should return a Pearson correlation coefficient for each sequence 
+        pearson_rs.append(torch.mean(seq_pearsonr)) # Average the Pearson correlation coefficient for all sequences
     
+    # Return the average Pearson correlation coefficient for all outcomes
     return torch.mean(torch.tensor(pearson_rs))
 
 
@@ -115,9 +117,11 @@ def mi_mae(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:t
         mask = torch.ones(input.shape, device=input.device) 
     
     if reduction == "mean":
-        loss = torch.sum(torch.abs(input - target)*mask)/torch.sum(mask)
+        loss = torch.sum(torch.abs(input - target)*mask)/torch.sum(mask, axis=1)
+        loss = torch.mean(loss, axis=0).mean()
     elif reduction == "sum":
         loss = torch.sum(torch.abs(input - target)*mask)
+        loss = torch.mean(loss, axis=0).mean()
     elif reduction == "none" or reduction is None:
         loss = torch.abs(input - target)*mask
     

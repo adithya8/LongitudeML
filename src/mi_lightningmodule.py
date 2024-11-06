@@ -35,7 +35,8 @@ class MILightningModule(pl.LightningModule):
             self.loss = nn.BCEWithLogitsLoss()
         elif args.num_classes==1:
             self.loss = mi_mse #nn.MSELoss()
-            # self.metrics_fns = {'smape': mi_smape, 'pearsonr': mi_pearsonr, 'mae': mi_mae}
+            # self.metrics_fns = {'mse': mi_mse}
+            self.metrics_fns = {'smape': mi_smape, 'pearsonr': mi_pearsonr, 'mse': mi_mse}
         else:
             raise ValueError("Invalid number of classes")
 
@@ -160,11 +161,19 @@ class MILightningModule(pl.LightningModule):
         if 'infill_lang_mask' in cat_outputs:
             self.labels[process]['infill_lang_mask'].append(cat_outputs['infill_lang_mask'])
         if self.metrics_fns:
-            pred_flatten = torch.cat([i.view(-1, 1) for i in cat_outputs['pred']], dim=0)
-            target_flatten = torch.cat([i.view(-1, 1) for i in cat_outputs['outcomes']], dim=0)
-            mask_flatten = torch.cat([i.view(-1, 1) for i in cat_outputs['infill_lang_mask']], dim=0)
+            max_timesteps = max([i.shape[1] for i in cat_outputs['pred']])
+            for batch_idx in range(len(cat_outputs['pred'])):
+                if cat_outputs['pred'][batch_idx].shape[1] < max_timesteps:
+                    zero_pads = torch.zeros((cat_outputs[batch_idx].shape[0], max_timesteps-cat_outputs[batch_idx].shape[1], self.num_outcomes))
+                    cat_outputs['pred'][batch_idx] = torch.cat([cat_outputs[batch_idx], zero_pads], dim=1)
+                    cat_outputs['outcomes'][batch_idx] = torch.cat([cat_outputs[batch_idx], zero_pads], dim=1)
+                    cat_outputs['infill_outcomes_mask'][batch_idx] = torch.cat([cat_outputs[batch_idx], zero_pads], dim=1)
+            pred_cat = torch.cat(cat_outputs['pred'], dim=0)
+            target_cat = torch.cat(cat_outputs['outcomes'], dim=0)
+            mask_cat = torch.cat(cat_outputs['infill_outcomes_mask'], dim=0)
             for metric_name, fn in self.metrics_fns.items():
-                self.epoch_metrics[process][metric_name].append(fn(input=pred_flatten, target=target_flatten, mask=mask_flatten))
+                value = fn(input=pred_cat, target=target_cat, mask=mask_cat)
+                self.epoch_metrics[process][metric_name].append(value.item())
 
 
     def on_train_epoch_end(self) -> None:

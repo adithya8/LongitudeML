@@ -174,9 +174,9 @@ class AutoRegressiveTransformer(nn.Module):
                     output_rep = (output_rep*pos_mask.unsqueeze(-1)).sum(dim=1)
                 # else:
                 #     if mask is not None: output_rep = (output_rep*mask.unsqueeze(-1))
-                output = layer(self.output_dropout_layer(output_rep)).squeeze(-1)
+                output = layer(self.output_dropout_layer(output_rep))
         
-        if torch.isnan(output).any(): import pdb; pdb.set_trace()
+        # if torch.isnan(output).any(): import pdb; pdb.set_trace()
         
         return output
 
