@@ -81,6 +81,7 @@ class MILightningModule(pl.LightningModule):
         batch_output = self.model(**batch)
         # Loss only calculates for the valid timesteps 
         batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['infill_outcomes_mask'])
+        if torch.isnan(batch_loss).any(): import pdb; pdb.set_trace()
         step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['infill_outcomes_mask'])
         log_metrics_dict = {'train_loss': batch_loss}
         log_metrics_dict.update({'train_{}'.format(key): val for key, val in step_metrics.items()})
@@ -164,10 +165,10 @@ class MILightningModule(pl.LightningModule):
             max_timesteps = max([i.shape[1] for i in cat_outputs['pred']])
             for batch_idx in range(len(cat_outputs['pred'])):
                 if cat_outputs['pred'][batch_idx].shape[1] < max_timesteps:
-                    zero_pads = torch.zeros((cat_outputs[batch_idx].shape[0], max_timesteps-cat_outputs[batch_idx].shape[1], self.num_outcomes))
-                    cat_outputs['pred'][batch_idx] = torch.cat([cat_outputs[batch_idx], zero_pads], dim=1)
-                    cat_outputs['outcomes'][batch_idx] = torch.cat([cat_outputs[batch_idx], zero_pads], dim=1)
-                    cat_outputs['infill_outcomes_mask'][batch_idx] = torch.cat([cat_outputs[batch_idx], zero_pads], dim=1)
+                    zero_pads = torch.zeros((cat_outputs['pred'][batch_idx].shape[0], max_timesteps-cat_outputs['pred'][batch_idx].shape[1], self.args.num_outcomes))                    
+                    cat_outputs['pred'][batch_idx] = torch.cat([cat_outputs['pred'][batch_idx], zero_pads], dim=1)
+                    cat_outputs['outcomes'][batch_idx] = torch.cat([cat_outputs['outcomes'][batch_idx], zero_pads], dim=1)
+                    cat_outputs['infill_outcomes_mask'][batch_idx] = torch.cat([cat_outputs['infill_outcomes_mask'][batch_idx], zero_pads], dim=1)
             pred_cat = torch.cat(cat_outputs['pred'], dim=0)
             target_cat = torch.cat(cat_outputs['outcomes'], dim=0)
             mask_cat = torch.cat(cat_outputs['infill_outcomes_mask'], dim=0)

@@ -94,10 +94,7 @@ class PositionalEncoding(nn.Module):
         self.positional_embedding = torch.nn.Embedding(self.max_len, self.d_model)
         
     def forward(self, x):
-        try:
-            x = x + self.positional_embedding(torch.arange(x.shape[1], device=x.device))
-        except:
-            import pdb; pdb.set_trace()
+        x = x + self.positional_embedding(torch.arange(x.shape[1], device=x.device))
         return x
 
     
