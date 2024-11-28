@@ -13,8 +13,8 @@ from src import DLATKDataGetter
 from src import get_dataset
 
 def read_dlatk_data():
-    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v3", 
-                feature_tables=["feat$dr_rpca_64_roba_meL11$whisper_transcripts_v3$user_day_id"],
+    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v4", 
+                feature_tables=["feat$dr_rpca_64_roba_meL11$whisper_transcripts_v4$user_day_id"],
                 # feature_tables=["feat$dr_rpca_32_roba_meL11$whisper_transcripts_v3$user_day_id"],
                 outcome_table="outcomes_v3_PCL_forecast", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
                 correl_field="user_id", messageid_field="user_day_id")
@@ -218,4 +218,5 @@ if __name__ == '__main__':
     merged_dataset = merged_dataset.sort('std_outcome').sort('avg_outcome')
     merged_dataset = merged_dataset.map(stratify_sequences, batched=True, batch_size=num_folds, remove_columns=['avg_outcome', 'std_outcome'])
     
-    merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/roberta_base_L11_rpca64_PCL_1_days_ahead_max90days_v3_40combined_5fold')
+    # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/roberta_base_L11_rpca64_PCL_1_days_ahead_max90days_v3_40combined_5fold')
+    merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/roberta_base_L11_rpca64_PCL_1_days_ahead_max90days_v4_40combined_5fold')
