@@ -61,3 +61,15 @@ if __name__ == '__main__':
     print ('Saved epoch metrics to {}'.format(os.path.join(args.output_dir, '{}/{}/epoch_metrics.pkl'.format(logger._project_name, logger._experiment_key))))
         
     logger.experiment.end()    
+    
+"""
+Example:
+
+CUDA_VISIBLE_DEVICES=3 python run_PCL_forecast.py --data_dir /cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/roberta_base_L11_rpca64_PCL_1_days_ahead_max90days_v3_40combined_5fold \
+                        --output_dir /cronus_data/avirinchipur/ptsd_stop/forecasting/runs_1_ahead_only \
+                        --overwrite_output_dir --num_outcomes 3 --model_type trns --num_layers 3 \
+                        --num_heads 8 --max_len 90 --dropout 0.1 --output_dropout 0.1  --input_size 64 --lr 3e-4 \
+                        --weight_decay 1e-2 --do_train --val_folds 0 --min_epochs 15 --epochs 40 \
+                        --train_batch_size 16 --val_batch_size 32 --workspace ptsd-stop-forecasting --project_name 1_day_ahead \
+                        --experiment_name dummy_trns_3lyr8hds_lr3e-4_wd1e-2_pe_1day_rpca64robaL11_max90_do0.1_opdo_0.1
+"""
