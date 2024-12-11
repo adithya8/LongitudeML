@@ -160,10 +160,13 @@ class DLATKDataGetter:
         
         return qryid_seqid_mapping, qryid_timeids_mapping
     
-
     def get_long_lang_features(self, where:str='', include_num_tokens=True) -> Dict:
+        print ("get_long_lang_features is deprecated. Use get_long_features instead")
+        return self.get_long_features(where=where, include_num_tokens=include_num_tokens)
+
+    def get_long_features(self, where:str='', include_num_tokens=True) -> Dict:
         """
-            Gets language features from the feature tables.
+            Gets features/embeddings from the feature tables.
             Where clause can be used to filter the data and is run on the message table.
             include_num_tokens: bool - whether to include the number of tokens in the language features. Default: True
             Returns
@@ -205,20 +208,20 @@ class DLATKDataGetter:
             feature_table = f'feat$meta_1gram${self.args.msg_table}${self.args.messageid_field}'
             num_tokens_dict = self.get_feature(feature="_total1grams", feature_table=feature_table, where=where)
         
-        # STEP 4: Create the language features dictionary
-        long_lang_features_dict = dict(seq_id=[], time_ids=[], embeddings=[], num_tokens=[])
+        # STEP 4: Create the embeddings dictionary
+        long_features_dict = dict(seq_id=[], time_ids=[], embeddings=[], num_tokens=[])
         for seq_id in seqid_timeidsqryids_mapping.keys():
             temp_timeids = [x[0] for x in seqid_timeidsqryids_mapping[seq_id]]
             temp_qryids = [x[1] for x in seqid_timeidsqryids_mapping[seq_id]]
             temp_embs = [gns_dict[qry_id] for qry_id in temp_qryids]
             temp_num_tokens = [num_tokens_dict[qry_id] for qry_id in temp_qryids] if include_num_tokens else [None]*len(temp_qryids)
-            long_lang_features_dict['seq_id'].append(seq_id)
-            long_lang_features_dict['time_ids'].append(temp_timeids)
-            long_lang_features_dict['embeddings'].append(temp_embs)
-            long_lang_features_dict['num_tokens'].append(temp_num_tokens)
-        long_lang_features_dict['embeddings_names'] = features_names
+            long_features_dict['seq_id'].append(seq_id)
+            long_features_dict['time_ids'].append(temp_timeids)
+            long_features_dict['embeddings'].append(temp_embs)
+            long_features_dict['num_tokens'].append(temp_num_tokens)
+        long_features_dict['embeddings_names'] = features_names
         
-        return long_lang_features_dict
+        return long_features_dict
 
     
     def long_type_encoding(self, qryid_seqid_mapping) -> Dict:

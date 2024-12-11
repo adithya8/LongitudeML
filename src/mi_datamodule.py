@@ -126,12 +126,12 @@ def default_collate_fn(features, predict_last_valid_timestep):
     batch = {"predict_last_valid_hidden_state": predict_last_valid_timestep }
     max_seq_len = max([len(feat['time_ids']) for feat in features])#+1
     seq_lens = [len(feat['time_ids']) for feat in features]
-    num_outcomes = len(first['infill_outcomes_mask'][0]) if 'infill_outcomes_mask' in first else len(first['labels']) if 'labels' in first else len(first['outcomes'])
+    num_outcomes = len(first['outcomes_mask'][0]) if 'outcomes_mask' in first else len(first['labels']) if 'labels' in first else len(first['outcomes'])
              
     for k, _ in first.items():
-        if k == "embeddings":
+        if k.startswith("embeddings"):
             for feat in features:
-                embeddings = torch.tensor(feat['embeddings']).clone().detach()
+                embeddings = torch.tensor(feat[k]).clone().detach()
                 if len(embeddings.shape) == 2:
                     embeddings = embeddings.unsqueeze(0)
                 elif len(embeddings.shape) != 3:
@@ -139,9 +139,9 @@ def default_collate_fn(features, predict_last_valid_timestep):
                 if embeddings.shape[1] < max_seq_len:
                     zeros = torch.zeros((1, max_seq_len - embeddings.shape[1], embeddings.shape[2]))
                     embeddings = torch.cat((embeddings, zeros), dim=1)
-                feat['embeddings'] = embeddings
+                feat[k] = embeddings
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
-        elif k == "labels" or k == "outcomes" or k == "infill_outcomes_mask":
+        elif k == "labels" or k == "outcomes" or k == "outcomes_mask":
             for feat in features:
                 outcomes = torch.tensor(feat[k]).clone().detach() 
                 if len(outcomes.shape) == 2:
@@ -153,11 +153,11 @@ def default_collate_fn(features, predict_last_valid_timestep):
                     outcomes = torch.cat((outcomes, zeros), dim=1)
                 feat[k] = outcomes
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
-            if k=="infill_outcomes_mask": batch[k] = batch[k].to(torch.bool) 
-        elif k=="pad_mask" or k=="time_ids" or k=="infill_mask" or k == "infill_lang_mask":
-            padding_value = -1 if k=="time_ids" else (1 if k=="pad_mask" else 0)
+            if k=="outcomes_mask": batch[k] = batch[k].to(torch.bool) 
+        elif k=="pad_mask" or k=="time_ids" or k=="infill_mask" or k.startswith("mask"):
+            padding_value = -1 if k=="time_ids" else (1 if k=="pad_mask" or k.startswith("mask") else 0)
             batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=padding_value, batch_first=True)
-            if k == "pad_mask" or k == "infill_mask" or k == "infill_lang_mask" or k == "infill_outcomes_mask": 
+            if k == "pad_mask" or k == "infill_mask" or k.startswith("mask") or k=="outcomes_mask": 
                 batch[k] = batch[k].to(torch.bool)
             elif k == "time_ids":
                 batch[k] = batch[k].to(torch.long)

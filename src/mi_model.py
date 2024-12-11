@@ -120,6 +120,11 @@ class AutoRegressiveTransformer(nn.Module):
     
     def init_model(self):
         self.model = []
+        # init infill_embeddings of side (input_size, ) which can be learnt when embeddings for a timestep is missing
+        # Perform Xavier initialization for the infill_embeddings.
+        # std = gain * sqrt(2.0 / (fan_in + fan_out)); gain = 1.0, fan_in = 1, fan_out = self.input_size
+        std = 1.0 * (2.0 / (1 + self.input_size))**0.5
+        self.infill_embeddings = nn.Parameter(torch.normal(0, std**2, (self.input_size,)))        
         self.positional_encoding = PositionalEncoding(self.input_size, self.max_len)
         self.output_dropout_layer = nn.Dropout(self.output_dropout)
         # self.ln = nn.LayerNorm(self.input_size) # layernorm is already present in the TransformerEncoderLayer
@@ -137,44 +142,49 @@ class AutoRegressiveTransformer(nn.Module):
         
         self.model = nn.ModuleList(self.model)
     
-    def forward(self, embeddings:torch.Tensor, pad_mask:torch.Tensor=None, predict_last_valid_hidden_state:bool=True, **kwargs):
+    def forward(self, embeddings:torch.Tensor, mask:torch.Tensor=None, predict_last_valid_hidden_state:bool=True, **kwargs):
         """
             embeddings: (batch_size, seq_len, input_size)
-            pad_mask: (batch_size, seq_len) of type bool. if mask = 1, then the query is was padded and should not be used for attention. If mask = 0, then the query is valid and should be used for attention.
+            mask: (batch_size, seq_len) of type bool. if mask = 1, then the query is was padded and should not be used for attention. If mask = 0, then the query is valid and should be used for attention.
             predict_last_valid_hidden_state: If True, then the last valid timestep's hidden state from each instance is used for prediction. Else, all timesteps' hidden states are predicted.
         """
         
-        if pad_mask is not None:
+        if mask is not None:
             # assert isinstance(mask, torch.BoolTensor), "Mask should be of type BoolTensor" #TODO: This line throws assertion error although the mask is of type BoolTensor
-            assert pad_mask.shape == torch.Size(embeddings.shape[:2]), "Mask shape should be (batch_size, seq_len). Got {} for mask and {} for embeddings".format(pad_mask.shape, embeddings.shape)
-            
-        output_rep = embeddings + self.positional_encoding(embeddings)
-        # Use src_key_padding_mask to mask out the padded tokens
-        # It should be of size (batch_size, seq_len). Positions set to -inf are not used for the attention mechanism if float. Positions set to True are not used if bool.
-        # TODO: Modify embeddings of infilled Language alone
-        src_key_padding_mask_float = torch.where(pad_mask==True, -torch.inf, 0.0) 
+            assert mask.shape == torch.Size(embeddings.shape[:2]), "Mask shape should be (batch_size, seq_len). Got {} for mask and {} for embeddings".format(mask.shape, embeddings.shape)
+
+        # Create infill mask first. Set to true for timesteps that were infilled whicch are timesteps with time_id != -1 and mask == 1. Else set to False. Create it in the same device as the embeddings
+        infill_mask = torch.where((kwargs['time_ids']!=-1) & mask, True, False).to(embeddings.device)
+        # adding infill_embeddings whereever the mask is True
+
+        output_rep = embeddings + (infill_mask.unsqueeze(-1)*self.infill_embeddings)
+        # adding positional encoding to the embeddings
+        output_rep = self.positional_encoding(embeddings)
+        # src_key_padding_mask only to mask out the padded tokens, i.e., timestep with time_ids = -1. 
+        # Boolean src_key_padding_mask uses True to mask out the padded tokens. Floating uses -inf to mask out the padded tokens and 0.0 to keep the valid tokens.
+        src_key_padding_mask_bool = torch.where(kwargs['time_ids']==-1, True, False)        
         # Generate a square mask for the src_mask parameter in the TransformerEncoderLayer. This should be of size (seq_len, seq_len)
-        # This mask is used to mask out the future tokens in the sequence. -inf is used to mask out the future tokens, 0s are used to keep the present and past tokens.
-        # NOTE: Use float for this mask. Bool returns Nan valued tensors.
-        src_mask_float = nn.Transformer.generate_square_subsequent_mask(sz=embeddings.shape[1], device=embeddings.device)
+        # This mask is used to mask out the future tokens in the sequence. For Boolean mask, True is used to mask out the future tokens, False is used to keep the present and past tokens. 
+        # For float -inf is used to mask out the future tokens, 0s are used to keep the present and past tokens.
+        src_mask_bool = ~torch.tril(torch.ones(embeddings.shape[1], embeddings.shape[1], device=embeddings.device)).bool()
+        # src_mask_float = nn.Transformer.generate_square_subsequent_mask(sz=embeddings.shape[1], device=embeddings.device)
         for layer in self.model:                
             if isinstance(layer, nn.TransformerEncoderLayer):
-                output_rep = layer(src=output_rep, is_causal=True, src_mask=src_mask_float, src_key_padding_mask=src_key_padding_mask_float)
+                output_rep = layer(src=output_rep, is_causal=True, src_mask=src_mask_bool, src_key_padding_mask=src_key_padding_mask_bool)
             elif isinstance(layer, nn.Linear):
                 if predict_last_valid_hidden_state:
-                    pos_mask = torch.zeros(pad_mask.shape, device = pad_mask.device)
-                    if pad_mask is not None:
-                        idx = torch.sum(pad_mask, dim=1) - 1
+                    pos_mask = torch.zeros(mask.shape, device = mask.device)
+                    if mask is not None:
+                        # Find the first False in mask from the right side for each instance in the batch
+                        idx = torch.argmax(~torch.flip(mask, [1]), dim=1)
+                        idx = mask.shape[1] - idx - 1
+                        # idx = torch.sum(mask, dim=1) - 1
                     else:
                         idx = torch.tensor([-1]*output_rep.shape[0], device=output_rep.device)
                     pos_mask[torch.arange(output_rep.shape[0]), idx] = 1
                     output_rep = (output_rep*pos_mask.unsqueeze(-1)).sum(dim=1)
-                # else:
-                #     if mask is not None: output_rep = (output_rep*mask.unsqueeze(-1))
                 output = layer(self.output_dropout_layer(output_rep))
         
         # if torch.isnan(output).any(): import pdb; pdb.set_trace()
-        
         return output
-
 #################################
