@@ -10,19 +10,41 @@ import pytorch_lightning as pl
 # from optuna.integration import PyTorchLightningPruningCallback
 
 from datasets import load_from_disk
+import torch
+import torch.nn as nn
 
 from src import (
     get_default_args, get_logger,
     get_datasetDict, create_mask, MIDataLoaderModule,
-    MILightningModule
+    MILightningModule, recurrent, AutoRegressiveTransformer, PositionalEncoding
 )
+
+class CustomTransformer(nn.Module):
+    def __init__(self, lang_transformer:AutoRegressiveTransformer, subscales_transformer:AutoRegressiveTransformer):
+        super(CustomTransformer, self).__init__()
+        self.lang_transformer = lang_transformer
+        self.subscales_transformer = subscales_transformer
+        self.relu = nn.ReLU()
+        # self.pooler = torch.mean()#nn.Linear(2, 1)
+    
+    def forward(self, embeddings_lang, mask_lang, embeddings_subscales, mask_subscales, **kwargs):
+        lang_out = self.lang_transformer(embeddings_lang, mask_lang, **kwargs)
+        subscales_out = self.subscales_transformer(embeddings_subscales, mask_subscales, **kwargs)
+        lang_out = self.relu(lang_out)
+        subscales_out = self.relu(subscales_out)
+        output = (lang_out + subscales_out)/2.0
+        # output = (lang_out + subscales_out)/2.0
+        return output
 
 
 if __name__ == '__main__':
     
     args = get_default_args()
     data = load_from_disk(args.data_dir)
-
+    
+    # data = data.rename_columns({'embeddings_lang': 'embeddings', 'mask_lang': 'mask'})
+    data = data.rename_columns({'embeddings_subscales': 'embeddings', 'mask_subscales': 'mask'})
+    
     datasetDict = get_datasetDict(train_data=data, val_folds=[0])
 
     # Set the seed for reproducibility
@@ -39,6 +61,25 @@ if __name__ == '__main__':
     # TODO: collate function should be handled by the task
     dataloaderModule = MIDataLoaderModule(args, datasetDict)
 
+    if args.model_type == 'gru':
+        model = recurrent(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, 
+                                   num_outcomes = args.num_outcomes, num_layers = args.num_layers,  
+                                   dropout = args.dropout, output_dropout=args.output_dropout, 
+                                   bidirectional = args.bidirectional 
+                                   )
+    elif args.model_type == 'trns':
+        # lang_model = AutoRegressiveTransformer(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, 
+        #                        num_outcomes = args.num_outcomes, num_layers = args.num_layers,  
+        #                        dropout = args.dropout, output_dropout=args.output_dropout, 
+        #                        bidirectional = args.bidirectional, num_heads=args.num_heads, max_len=args.max_len 
+        #                        )
+        model = AutoRegressiveTransformer(input_size=4, hidden_size=4, num_classes=args.num_classes,
+                                num_outcomes=args.num_outcomes, num_layers=args.num_layers,
+                                dropout=args.dropout, output_dropout=args.output_dropout,
+                                bidirectional=args.bidirectional, num_heads=2, max_len=args.max_len
+                                )
+        # model = CustomTransformer(lang_model, subscales_model)
+        
     callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
                                         mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)] if args.early_stopping_patience>0 else []
     callbacks.append(pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1, save_last=False))
@@ -46,7 +87,7 @@ if __name__ == '__main__':
     trainer = pl.Trainer(accelerator='gpu', devices=1, default_root_dir=args.output_dir, logger=logger,
                         callbacks=callbacks, min_epochs=args.min_epochs, max_epochs=args.epochs)
         
-    lightning_module = MILightningModule(args) 
+    lightning_module = MILightningModule(args, model) 
     
     trainer.fit(lightning_module, train_dataloaders=dataloaderModule.train_dataloader(), val_dataloaders=dataloaderModule.val_dataloader())
 
