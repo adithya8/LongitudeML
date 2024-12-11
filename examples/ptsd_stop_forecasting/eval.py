@@ -39,6 +39,40 @@ def compute_mse(label:np.ndarray, pred:np.ndarray, outcome_mask:np.ndarray=None)
     return mse_value
 
 
+def compute_mae(label:np.ndarray, pred:np.ndarray, outcome_mask:np.ndarray=None):
+    """
+        Calculate MAE loss for a single outcome. \n
+        MAE = mean(|label - pred|) \n
+        Only computed for valid timesteps denoted by outcome_mask.
+        
+        Inputs
+        --------
+        label: np.ndarray of shape (num_timesteps, 1) or (num_timesteps, ) \n
+        pred: np.ndarray of shape (num_timesteps, 1) or (num_timesteps, ) \n
+        outcome_mask: np.ndarray of shape (num_timesteps, 1) or (num_timesteps, ). Value of 0 indicates invalid timestep.
+        
+        Returns
+        --------
+        mae_value: float - MAE value.
+    """
+    assert label.shape == pred.shape, "Shape mismatch between label ({}) and pred ({}).".format(label.shape, pred.shape)
+    assert label.shape == outcome_mask.shape, "Shape mismatch between label ({}) and outcome_mask ({}).".format(label.shape, outcome_mask.shape)
+    assert len(label.shape) == 1 or (len(label.shape) == 2 and label.shape[1] == 1), "Invalid shape for label ({}).".format(label.shape)
+    assert len(pred.shape) == 1 or (len(pred.shape) == 2 and pred.shape[1] == 1), "Invalid shape for pred ({}).".format(pred.shape)
+    assert len(outcome_mask.shape) == 1 or (len(outcome_mask.shape) == 2 and outcome_mask.shape[1] == 1), "Invalid shape for outcome_mask ({}).".format(outcome_mask.shape)
+    assert (outcome_mask is not None and np.sum(outcome_mask) >= 1) or outcome_mask is None, "Insufficient valid timesteps for Mean Absolute Error."
+    
+    # Change everything to (N, )
+    label = label.reshape(-1, )
+    pred = pred.reshape(-1, )
+    outcome_mask = outcome_mask.reshape(-1, )
+    
+    # Calculate MAE
+    mae_value = np.mean(np.abs(label - pred)[outcome_mask == 1])
+    
+    return mae_value
+
+
 def compute_pearsonr(label:np.ndarray, pred:np.ndarray, outcome_mask:np.ndarray=None):
     """
         Calculate Pearson correlation coefficient for a single outcome. \n
@@ -130,7 +164,7 @@ def within_seq_metric(metric:Union[str, callable], seq_ids:List, labels:List[Lis
         within_seq_metric_dict:dict - Contains the mean, median, and the metrics for the entire sequence. 
     """
     # Check whether the metric is a callable defined as functions above or is in ["mse", "smape", "pearson"]
-    assert (isinstance(metric, str) and metric in ["mse", "smape", "pearsonr"]) or callable(metric), "Invalid metric. Choose from ['mse', 'smape', 'pearsonr'] or provide a callable function."
+    assert (isinstance(metric, str) and metric in ["mse", "smape", "pearsonr", "mae"]) or callable(metric), "Invalid metric. Choose from ['mse', 'smape', 'pearsonr', 'mae'] or provide a callable function."
 
     if isinstance(metric, str):
         if metric == "mse": 
@@ -139,10 +173,12 @@ def within_seq_metric(metric:Union[str, callable], seq_ids:List, labels:List[Lis
             metric_func = compute_smape
         elif metric == "pearsonr":
             metric_func = compute_pearsonr
+        elif metric == "mae":
+            metric_func = compute_mae
         metric_name = metric
     else:
         metric_name = metric.__name__.split("_")[-1]
-        assert metric_name in ["mse", "smape", "pearsonr"], "Invalid metric function. Choose from ['mse', 'smape', 'pearsonr']"
+        assert metric_name in ["mse", "smape", "pearsonr", "mae"], "Invalid metric function. Choose from ['mse', 'smape', 'pearsonr', 'mae]"
     
     metric_values_dict = {} # Dictionary to store metric values for each sequence
     mean_metric_value = 0.0
