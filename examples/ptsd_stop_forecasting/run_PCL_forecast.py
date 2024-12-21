@@ -19,23 +19,7 @@ from src import (
     MILightningModule, recurrent, AutoRegressiveTransformer, PositionalEncoding
 )
 
-class CustomTransformer(nn.Module):
-    def __init__(self, lang_transformer:AutoRegressiveTransformer, subscales_transformer:AutoRegressiveTransformer):
-        super(CustomTransformer, self).__init__()
-        self.lang_transformer = lang_transformer
-        self.subscales_transformer = subscales_transformer
-        self.relu = nn.ReLU()
-        # self.pooler = torch.mean()#nn.Linear(2, 1)
-    
-    def forward(self, embeddings_lang, mask_lang, embeddings_subscales, mask_subscales, **kwargs):
-        lang_out = self.lang_transformer(embeddings_lang, mask_lang, **kwargs)
-        subscales_out = self.subscales_transformer(embeddings_subscales, mask_subscales, **kwargs)
-        lang_out = self.relu(lang_out)
-        subscales_out = self.relu(subscales_out)
-        output = (lang_out + subscales_out)/2.0
-        # output = (lang_out + subscales_out)/2.0
-        return output
-
+from CustomTransformers import TRNS_ARCHS      
 
 if __name__ == '__main__':
     
@@ -43,7 +27,8 @@ if __name__ == '__main__':
     data = load_from_disk(args.data_dir)
     
     # data = data.rename_columns({'embeddings_lang': 'embeddings', 'mask_lang': 'mask'})
-    data = data.rename_columns({'embeddings_subscales': 'embeddings', 'mask_subscales': 'mask'})
+    # data = data.rename_columns({'embeddings_subscales': 'embeddings', 'mask_subscales': 'mask'})
+    # data = data.rename_columns({'embeddings_hypLex': 'embeddings', 'mask_hypLex': 'mask'})
     
     datasetDict = get_datasetDict(train_data=data, val_folds=[0])
 
@@ -67,18 +52,28 @@ if __name__ == '__main__':
                                    dropout = args.dropout, output_dropout=args.output_dropout, 
                                    bidirectional = args.bidirectional 
                                    )
-    elif args.model_type == 'trns':
-        # lang_model = AutoRegressiveTransformer(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, 
-        #                        num_outcomes = args.num_outcomes, num_layers = args.num_layers,  
-        #                        dropout = args.dropout, output_dropout=args.output_dropout, 
-        #                        bidirectional = args.bidirectional, num_heads=args.num_heads, max_len=args.max_len 
-        #                        )
-        model = AutoRegressiveTransformer(input_size=4, hidden_size=4, num_classes=args.num_classes,
+    elif args.model_type == 'custom':
+        if args.custom_model in ['langsubscaledualcontextformer']:
+            lang_model = AutoRegressiveTransformer(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                 num_outcomes=args.num_outcomes, num_layers=args.num_layers,
                                 dropout=args.dropout, output_dropout=args.output_dropout,
-                                bidirectional=args.bidirectional, num_heads=2, max_len=args.max_len
+                                bidirectional=args.bidirectional, num_heads=args.num_heads, max_len=args.max_len
                                 )
-        # model = CustomTransformer(lang_model, subscales_model)
+            subscales_model = AutoRegressiveTransformer(input_size=4, hidden_size=4, num_classes=args.num_classes,
+                                num_outcomes=args.num_outcomes, num_layers=args.num_layers,
+                                dropout=args.dropout, output_dropout=args.output_dropout,
+                                bidirectional=args.bidirectional, num_heads=args.num_heads, max_len=args.max_len
+                                )
+            model = TRNS_ARCHS[args.custom_model](lang_model, subscales_model)
+        elif args.custom_model in ['dailylangformer', 'pclsubscaleformer', 'totalpclformer', 'lextransformer', 'wtcpclsubscaleformer']:
+            pcl_model = AutoRegressiveTransformer(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
+                                num_outcomes=args.num_outcomes, num_layers=args.num_layers,
+                                dropout=args.dropout, output_dropout=args.output_dropout,
+                                bidirectional=args.bidirectional, num_heads=args.num_heads, max_len=args.max_len
+                                )
+            model = TRNS_ARCHS[args.custom_model](pcl_model)
+        else:
+            raise ValueError('Invalid custom model: {}'.format(args.custom_model))        
         
     callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
                                         mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)] if args.early_stopping_patience>0 else []
