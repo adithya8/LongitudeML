@@ -30,7 +30,7 @@ def get_dataset(data:Dict):
     return dataset
 
 
-def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Dataset]=None, test_data:Union[Dict, Dataset]=None, val_folds:List=None, fold_col:str='folds'):
+def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Dataset]=None, test_data:Union[Dict, Dataset]=None, val_folds:List=None, test_folds:List=None, fold_col:str='folds'):
     """
         Returns the Huggingface datasets.DatasetDict.
         Each input dictionary contains three key value pairs:
@@ -48,6 +48,11 @@ def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Datase
         val_folds = set(val_folds)
         datasetDict['val'] = datasetDict['train'].filter(lambda example: example[fold_col] in val_folds).remove_columns(fold_col)
         datasetDict['train'] = datasetDict['train'].filter(lambda example: example[fold_col] not in val_folds).remove_columns(fold_col)
+    
+    if test_folds is not None:
+        test_folds = set(test_folds)
+        datasetDict['test'] = datasetDict['train'].filter(lambda example: example[fold_col] in test_folds).remove_columns(fold_col)
+        datasetDict['train'] = datasetDict['train'].filter(lambda example: example[fold_col] not in test_folds).remove_columns(fold_col)
     
     def create_defaut_time_ids(instance):
         """
