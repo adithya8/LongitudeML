@@ -86,6 +86,12 @@ class MILightningModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx) -> STEP_OUTPUT:
         batch, batch_labels, seq_id = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
+        # TODO: Filter data based on three categories and compute loss/metrics for all categories:
+        #                1. to the OOTS and Within Sample Sequence data
+        #                2. to the OOTS and OOSS data
+        #                3. to Within Time sample and OOSS data 
+        #                4. to only OOTS data 
+        #                5. to only OOSS data    
         batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['outcomes_mask'])
         step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['outcomes_mask'])
         log_metrics_dict = {'val_loss': batch_loss}
@@ -103,6 +109,9 @@ class MILightningModule(pl.LightningModule):
     def test_step(self, batch, batch_idx) -> STEP_OUTPUT:
         batch, batch_labels, seq_id = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
+        # TODO: Filter data based on two categories and compute loss/metrics for all categories:
+        #               1. to the OOTS sample
+        #               2. to the within time samples
         batch_loss = self.loss(input=batch_output, target=batch_labels)
         step_metrics = self.calculate_metrics(batch_output, batch_labels)
         log_metrics_dict = {'test_loss': batch_loss}

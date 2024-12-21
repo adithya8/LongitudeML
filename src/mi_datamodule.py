@@ -46,13 +46,22 @@ def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Datase
 
     if val_folds is not None:
         val_folds = set(val_folds)
-        datasetDict['val'] = datasetDict['train'].filter(lambda example: example[fold_col] in val_folds).remove_columns(fold_col)
-        datasetDict['train'] = datasetDict['train'].filter(lambda example: example[fold_col] not in val_folds).remove_columns(fold_col)
+        datasetDict['val'] = datasetDict['train'].filter(lambda example: example[fold_col] in val_folds)
+        datasetDict['train'] = datasetDict['train'].filter(lambda example: example[fold_col] not in val_folds)
     
     if test_folds is not None:
         test_folds = set(test_folds)
-        datasetDict['test'] = datasetDict['train'].filter(lambda example: example[fold_col] in test_folds).remove_columns(fold_col)
-        datasetDict['train'] = datasetDict['train'].filter(lambda example: example[fold_col] not in test_folds).remove_columns(fold_col)
+        datasetDict['test'] = datasetDict['train'].filter(lambda example: example[fold_col] in test_folds)
+        datasetDict['train'] = datasetDict['train'].filter(lambda example: example[fold_col] not in test_folds)
+    
+    datasetDict['train'] = datasetDict['train'].remove_columns(fold_col) 
+    if 'val' in datasetDict: datasetDict['val'] = datasetDict['val'].remove_columns(fold_col)
+    if 'test' in datasetDict: datasetDict['test'] = datasetDict['test'].remove_columns(fold_col)
+    
+    # TODO: Add ooss_mask indicating whether a sequence is out of sample or not
+    # Hence all the train sequences will have oots_mask as 0
+    # All the val and test sequences will have oots_mask as 1
+    # Introduce this as a new column in the dataset 
     
     def create_defaut_time_ids(instance):
         """
@@ -112,7 +121,7 @@ def create_mask(examples):
     return examples
 
 
-def default_collate_fn(features, predict_last_valid_timestep):
+def default_collate_fn(features, predict_last_valid_timestep, partition):
     # Features dict have embeddings, labels, time_ids, query_ids of single sequence (referenced by seq_idx)
     # predict_last_valid_timestep: True/False
     # Embeddings shape: (1, seq_len, hidden_dim)
@@ -122,6 +131,11 @@ def default_collate_fn(features, predict_last_valid_timestep):
     # infill_mask shape: (seq_len, )
     # query_id shape: (seq_len, )
     # seq_id shape: []
+    # TODO: Filter time samples based on the partitiion it belongs to:
+    #       For partition = train, For all samples remove timesteps which have oots_mask = 1
+    #       For partition = val/test, Retain all timesteps, and set oots_mask to 1 for the padded timesteps of a sequence
+    # TODO: Ensure ooss_mask and ooss_mask are set to Boolean type here
+
     first = features[0] # first is the first instance of the batch. features is a list of dictionary containing the instances. 
     if 'pad_mask' not in first: 
         for feat in features:
@@ -189,20 +203,22 @@ class MIDataLoaderModule(pl.LightningDataModule):
         self.test_dataset = datasets.pop('test', None)
         self.predict_dataset = datasets.pop('predict', None)
         print ('Predict Last Valid Timestep set to {}'.format(data_args.predict_last_valid_timestep))
-        self.collate_fn = lambda b: default_collate_fn(b, data_args.predict_last_valid_timestep) # NOTE: Either change to class method or use partial in case more args are needed
+        self.train_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="train") # NOTE: Either change to class method or use partial in case more args are needed
+        self.val_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="val")
+        self.test_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="test")
 
     def train_dataloader(self):
         if self.train_dataset is None: return None
-        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=True, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=True, collate_fn=self.train_collate_fn)#, num_workers=self.args.num_workers)
 
     def val_dataloader(self):
         if self.val_dataset is None: return None
-        return DataLoader(self.val_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.val_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.val_collate_fn)#, num_workers=self.args.num_workers)
 
     def test_dataloader(self):
         if self.test_dataset is None: return None
-        return DataLoader(self.test_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.test_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn)#, num_workers=self.args.num_workers)
 
     def predict_dataloader(self):
         if self.predict_dataset is None: return None
-        return DataLoader(self.predict_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.collate_fn)#, num_workers=self.args.num_workers,
+        return DataLoader(self.predict_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn)#, num_workers=self.args.num_workers,

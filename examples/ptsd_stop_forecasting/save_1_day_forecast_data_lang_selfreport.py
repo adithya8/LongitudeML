@@ -479,6 +479,13 @@ if __name__ == '__main__':
     merged_dataset = merged_dataset.sort('std_outcome').sort('avg_outcome')
     merged_dataset = merged_dataset.map(stratify_sequences, batched=True, batch_size=num_folds, remove_columns=['avg_outcome', 'std_outcome'])
     
+    # TODO: Create a function that would add another key:value pair to this dataset object maintaining a list for each sequence indicating whether a time_id belongs to train or eval. 
+    # The function definition: def create_train_eval_time_mask(instance, train_time_ids: List[int], eval_time_ids: List[int]=None) -> dict:
+    # Key = "oots_mask"; This value will be 0 for train_time_ids and 1 for eval_time_ids.
+    # Figure the max applicable time_id for each sequence.
+    # Every time_id not in train_time_id is eval_time_id for each sequence. Apply assertion that train_time_ids and eval_time_ids are mutually exclusive, but together they should cover all time_ids for that sequence.
+    
+    
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/todayPCL_selfreport_PCL_1_days_ahead_max90days_v3_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_base_L11_rpca64_combined_PCL_1_days_ahead_max90days_v4_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_merged_PCL_1_days_ahead_max90days_v4_40combined_5fold')
