@@ -55,10 +55,12 @@ def create_outcomes_mask(instance, outcomes_names:List[str]):
     """
     num_outcomes = len(outcomes_names)
     sorted_time_ids = sorted(instance['time_ids'])
-    missing_time_ids = set(range(sorted_time_ids[0], sorted_time_ids[-1]+1)) - set(sorted_time_ids)
+    # missing_time_ids = set(range(sorted_time_ids[0], sorted_time_ids[-1]+1)) - set(sorted_time_ids)
+    missing_time_ids = set(range(0, sorted_time_ids[-1]+1)) - set(sorted_time_ids)
     min_time_id = sorted_time_ids[0]
     infill_mask = []  
-    for time_id in range(sorted_time_ids[0], sorted_time_ids[-1]+1):
+    # for time_id in range(sorted_time_ids[0], sorted_time_ids[-1]+1):
+    for time_id in range(0, sorted_time_ids[-1]+1):
         if time_id in missing_time_ids:
             infill_mask.insert(time_id-min_time_id, [0]*num_outcomes) # inserting 0 as mask at the missing time_id
             instance['outcomes'].insert(time_id-min_time_id, [0]*num_outcomes)
@@ -320,9 +322,9 @@ def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=No
 if __name__ == '__main__':
     
     base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v4", 
-            feature_tables=["feat$PCL_sr$outcomes_v3$user_day_id"],
+            feature_tables=["feat$PCL_sr$outcomes_v4$user_day_id"],
             # feature_tables=["feat$dr_rpca_32_roba_meL11$whisper_transcripts_v3$user_day_id"],
-            outcome_table="outcomes_v3_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
+            outcome_table="outcomes_v4_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
             correl_field="user_id", messageid_field="user_day_id")
     
     long_sr_features, long_outcomes = read_dlatk_data(base_dict=base_dict)
@@ -353,7 +355,7 @@ if __name__ == '__main__':
     base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v4", 
                 feature_tables=["feat$dr_rpca_64_roba_meL11$whisper_transcripts_v4$user_day_id"],
                 # feature_tables=["feat$dr_rpca_32_roba_meL11$whisper_transcripts_v3$user_day_id"],
-                outcome_table="outcomes_v3_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
+                outcome_table="outcomes_v4_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
                 correl_field="user_id", messageid_field="user_day_id")
     
     long_lang_features, _ = read_dlatk_data(base_dict=base_dict)
@@ -369,10 +371,60 @@ if __name__ == '__main__':
     long_lang_features = long_lang_features.map(create_embs_mask)
     print ("Lang mask pattern created.")
     
+    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v4",
+                feature_tables=["feat$cat_dd_hypLex_w$whisper_transcripts_v4$user_day_id$1gra"],
+                outcome_table="outcomes_v4_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id",
+                correl_field="user_id", messageid_field="user_day_id")
+    
+    long_hypLex_features, _ = read_dlatk_data(base_dict=base_dict)
+    
+    if 'embeddings_names' in long_hypLex_features:
+        embeddings_names = long_hypLex_features.pop('embeddings_names')
+        long_hypLex_features = get_dataset(long_hypLex_features)
+        
+    def get_normalized_embeddings(dataset):
+        # Compute mean for each sequence across each dimension
+        # Comute the mean and std dev for each dimension on the mean of the sequences
+        # Normalize the embeddings using the mean and std dev
+        def compute_mean(instance): return np.mean(instance['embeddings'], axis=0)
+        means = []
+        for idx in range(len(dataset['seq_id'])):
+            instance = dataset[idx]
+            means.append(compute_mean(instance))
+        mean_means = np.mean(means, axis=0)
+        stddev_means = np.std(means, axis=0)
+        def normalize_embeddings(instance):
+            instance['embeddings'] = ((np.array(instance['embeddings']) - mean_means) / stddev_means).tolist()
+            return instance
+        dataset = dataset.map(normalize_embeddings)
+        return dataset
+    
+    long_hypLex_features = get_normalized_embeddings(long_hypLex_features)
+    print ("Long HypLex features and Long Outcomes read.")
+    
+    long_hypLex_features = long_hypLex_features.map(create_embs_mask)
+    print ("HypLex mask pattern created.")
+    
+    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v4",
+                    feature_tables=["feat$p_ridg_Pcl_wtc$whisper_transcripts_v4$user_day_id"],
+                    outcome_table="outcomes_v4_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id",
+                    correl_field="user_id", messageid_field="user_day_id")
+    
+    long_wtc_pclsubscales, _ = read_dlatk_data(base_dict=base_dict)
+    
+    if 'embeddings_names' in long_wtc_pclsubscales:
+        embeddings_names = long_wtc_pclsubscales.pop('embeddings_names')
+        long_wtc_pclsubscales = get_dataset(long_wtc_pclsubscales)
+    
+    long_wtc_pclsubscales = get_normalized_embeddings(long_wtc_pclsubscales)
+    
+    long_wtc_pclsubscales = long_wtc_pclsubscales.map(create_embs_mask)
+    print ("WTC PCL subscales mask pattern created.")
+    
     long_outcomes = long_outcomes.map(lambda x: create_outcomes_mask(x, outcomes_names))
     print ("Outcomes mask pattern created.")
 
-    long_merged_features = merge_features([long_sr_features, long_lang_features], ['_subscales', '_lang'])
+    long_merged_features = merge_features([long_sr_features, long_lang_features, long_hypLex_features, long_wtc_pclsubscales], ['_subscales', '_lang', '_hypLex', '_wtcSubscales'])
     
     # long_comb_features = concatenate_features(long_sr_features, long_lang_features)
     
@@ -389,7 +441,7 @@ if __name__ == '__main__':
                 if isinstance(instance[key], list): instance[key] = instance[key][:idx]
         return instance
     
-    merged_dataset = merged_dataset.map(lambda x: truncate_sequences(x, 89))
+    merged_dataset = merged_dataset.map(lambda x: truncate_sequences(x, 59))
     
     # Filter to sequences with at least 40 time_ids with either language or outcomes
     # To do that, sum infill_embs_mask and infill_outcomes_mask to the dataset and filter if the number of 1s/2s in the mask is less than 40. 
@@ -429,4 +481,6 @@ if __name__ == '__main__':
     
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/todayPCL_selfreport_PCL_1_days_ahead_max90days_v3_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_base_L11_rpca64_combined_PCL_1_days_ahead_max90days_v4_40combined_5fold')
-    merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_merged_PCL_1_days_ahead_max90days_v4_40combined_5fold')
+    # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_merged_PCL_1_days_ahead_max90days_v4_40combined_5fold')
+    # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_hypLexNormalized_merged_PCL_1_days_ahead_max60days_v4_40combined_5fold')
+    merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_hypLexNormalized_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max60days_v4_40combined_5fold')
