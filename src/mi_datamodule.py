@@ -30,7 +30,7 @@ def get_dataset(data:Dict):
     return dataset
 
 
-def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Dataset]=None, test_data:Union[Dict, Dataset]=None, val_folds:List=None, test_folds:List=None, fold_col:str='folds'):
+def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Dataset]=None, test_data:Union[Dict, Dataset]=None, val_folds:List=None, test_folds:List=None, fold_col:str='folds', time_partition:int=None):
     """
         Returns the Huggingface datasets.DatasetDict.
         Each input dictionary contains three key value pairs:
@@ -53,15 +53,24 @@ def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Datase
         test_folds = set(test_folds)
         datasetDict['test'] = datasetDict['train'].filter(lambda example: example[fold_col] in test_folds)
         datasetDict['train'] = datasetDict['train'].filter(lambda example: example[fold_col] not in test_folds)
-    
-    datasetDict['train'] = datasetDict['train'].remove_columns(fold_col) 
-    if 'val' in datasetDict: datasetDict['val'] = datasetDict['val'].remove_columns(fold_col)
-    if 'test' in datasetDict: datasetDict['test'] = datasetDict['test'].remove_columns(fold_col)
-    
+
     # TODO: Add ooss_mask indicating whether a sequence is out of sample or not
     # Hence all the train sequences will have oots_mask as 0
     # All the val and test sequences will have oots_mask as 1
     # Introduce this as a new column in the dataset 
+
+    datasetDict['train'] = datasetDict['train'].remove_columns(fold_col)
+    datasetDict['train']['ooss_mask'] = [0]*len(datasetDict['train']['seq_id'])
+    
+    if 'val' in datasetDict: 
+        datasetDict['val'] = datasetDict['val'].remove_columns(fold_col)
+        datasetDict['val']['ooss_mask'] = [1]*len(datasetDict['val']['seq_id'])
+        
+    if 'test' in datasetDict:
+        datasetDict['test'] = datasetDict['test'].remove_columns(fold_col)
+        datasetDict['test']['ooss_mask'] = [1]*len(datasetDict['test']['seq_id'])
+
+    # END TODO
     
     def create_defaut_time_ids(instance):
         """
@@ -75,6 +84,7 @@ def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Datase
             datasetDict[dataset_name] = datasetDict[dataset_name].map(create_defaut_time_ids)
         
     return datasetDict
+
 
 
 def create_mask(examples):
@@ -144,6 +154,8 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
     
     batch = {"predict_last_valid_hidden_state": predict_last_valid_timestep }
     max_seq_len = max([len(feat['time_ids']) for feat in features])#+1
+    if partition == 'train':
+        max_seq_len = max([len(feat['oots_mask']) - sum(feat['oots_mask']) for feat in features])
     seq_lens = [len(feat['time_ids']) for feat in features]
     num_outcomes = len(first['outcomes_mask'][0]) if 'outcomes_mask' in first else len(first['labels']) if 'labels' in first else len(first['outcomes'])
              
@@ -158,6 +170,8 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
                 if embeddings.shape[1] < max_seq_len:
                     zeros = torch.zeros((1, max_seq_len - embeddings.shape[1], embeddings.shape[2]))
                     embeddings = torch.cat((embeddings, zeros), dim=1)
+                if embeddings.shape[1] > max_seq_len:
+                    embeddings = embeddings[:max_seq_len]
                 feat[k] = embeddings
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
         elif k == "labels" or k == "outcomes" or k == "outcomes_mask":
@@ -170,13 +184,15 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
                 if outcomes.shape[1] < max_seq_len:
                     zeros = torch.zeros((1, max_seq_len - outcomes.shape[1], outcomes.shape[2]))
                     outcomes = torch.cat((outcomes, zeros), dim=1)
+                if outcomes.shape[1] > max_seq_len:
+                    outcomes = outcomes[:max_seq_len]
                 feat[k] = outcomes
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
             if k=="outcomes_mask": batch[k] = batch[k].to(torch.bool) 
         elif k=="pad_mask" or k=="time_ids" or k=="infill_mask" or k.startswith("mask"):
-            padding_value = -1 if k=="time_ids" else (1 if k=="pad_mask" or k.startswith("mask") else 0)
+            padding_value = -1 if k=="time_ids" else (1 if k=="pad_mask" or k.startswith("mask") or k=="oots_mask" else 0)
             batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=padding_value, batch_first=True)
-            if k == "pad_mask" or k == "infill_mask" or k.startswith("mask") or k=="outcomes_mask": 
+            if k == "pad_mask" or k == "infill_mask" or k.startswith("mask") or k == "outcomes_mask" or k == "oots_mask" or k == "ooss_mask": 
                 batch[k] = batch[k].to(torch.bool)
             elif k == "time_ids":
                 batch[k] = batch[k].to(torch.long)
@@ -209,16 +225,16 @@ class MIDataLoaderModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         if self.train_dataset is None: return None
-        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=True, collate_fn=self.train_collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=True, collate_fn=self.train_collate_fn,partition="train")#, num_workers=self.args.num_workers)
 
     def val_dataloader(self):
         if self.val_dataset is None: return None
-        return DataLoader(self.val_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.val_collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.val_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.val_collate_fn,partition="val")#, num_workers=self.args.num_workers)
 
     def test_dataloader(self):
         if self.test_dataset is None: return None
-        return DataLoader(self.test_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.test_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn,partition="test")#, num_workers=self.args.num_workers)
 
     def predict_dataloader(self):
         if self.predict_dataset is None: return None
-        return DataLoader(self.predict_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn)#, num_workers=self.args.num_workers,
+        return DataLoader(self.predict_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn,partition="test")#, num_workers=self.args.num_workers,
