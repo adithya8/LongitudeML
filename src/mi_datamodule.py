@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from datasets import DatasetDict, Dataset
 import pytorch_lightning as pl
+import pdb
 
 
 def get_dataset(data:Dict):
@@ -196,12 +197,13 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
             batch[k] = torch.tensor([f[k] for f in features]).reshape(len(features), -1)
         else:
             pass
-            # raise Warning("Key {} not supported for batching. Leaving it out of the dataloaders".format(k))        
+            # raise Warning("Key {} not supported for batching. Leaving it out of the dataloaders".format(k))
+    pdb.set_trace()
     if partition == 'train':
         train_len = max([len(feat['oots_mask']) - sum(feat['oots_mask']) for feat in features) #gets integer cutoff for oots segment, only supports constant oots range
         for k, _ in first.items():
             if len(batch[k].shape) > 1
-                batch[k] = torch.stack([sub[:train_len] for sub in batch[k]])
+                batch[k] = batch[k][:,:train_len]
     return batch
 
 
