@@ -154,8 +154,6 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
     
     batch = {"predict_last_valid_hidden_state": predict_last_valid_timestep }
     max_seq_len = max([len(feat['time_ids']) for feat in features])#+1
-    if partition == 'train':
-        max_seq_len = max([len(feat['oots_mask']) - sum(feat['oots_mask']) for feat in features])
     seq_lens = [len(feat['time_ids']) for feat in features]
     num_outcomes = len(first['outcomes_mask'][0]) if 'outcomes_mask' in first else len(first['labels']) if 'labels' in first else len(first['outcomes'])
              
@@ -170,8 +168,6 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
                 if embeddings.shape[1] < max_seq_len:
                     zeros = torch.zeros((1, max_seq_len - embeddings.shape[1], embeddings.shape[2]))
                     embeddings = torch.cat((embeddings, zeros), dim=1)
-                if embeddings.shape[1] > max_seq_len:
-                    embeddings = embeddings[:max_seq_len]
                 feat[k] = embeddings
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
         elif k == "labels" or k == "outcomes" or k == "outcomes_mask":
@@ -184,8 +180,6 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
                 if outcomes.shape[1] < max_seq_len:
                     zeros = torch.zeros((1, max_seq_len - outcomes.shape[1], outcomes.shape[2]))
                     outcomes = torch.cat((outcomes, zeros), dim=1)
-                if outcomes.shape[1] > max_seq_len:
-                    outcomes = outcomes[:max_seq_len]
                 feat[k] = outcomes
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
             if k=="outcomes_mask": batch[k] = batch[k].to(torch.bool) 
@@ -203,7 +197,11 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
         else:
             pass
             # raise Warning("Key {} not supported for batching. Leaving it out of the dataloaders".format(k))        
-    
+    if partition == 'train':
+        train_len = max([len(feat['oots_mask']) - sum(feat['oots_mask']) for feat in features) #gets integer cutoff for oots segment, only supports constant oots range
+        for k, _ in first.items():
+            if len(batch[k].shape) > 1
+                batch[k] = torch.stack([sub[:train_len] for sub in batch[k]])
     return batch
 
 
