@@ -184,7 +184,7 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
                 feat[k] = outcomes
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
             if k=="outcomes_mask": batch[k] = batch[k].to(torch.bool) 
-        elif k=="pad_mask" or k=="time_ids" or k=="infill_mask" or k.startswith("mask"):
+        elif k=="pad_mask" or k=="time_ids" or k=="infill_mask" or k=="oots_mask" or k.startswith("mask"):
             padding_value = -1 if k=="time_ids" else (1 if k=="pad_mask" or k.startswith("mask") or k=="oots_mask" else 0)
             batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=padding_value, batch_first=True)
             if k == "pad_mask" or k == "infill_mask" or k.startswith("mask") or k == "outcomes_mask" or k == "oots_mask" or k == "ooss_mask": 
