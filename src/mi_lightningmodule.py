@@ -91,18 +91,71 @@ class MILightningModule(pl.LightningModule):
         #                2. to the OOTS and OOSS data
         #                3. to Within Time sample and OOSS data 
         #                4. to only OOTS data 
-        #                5. to only OOSS data    
-        batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['outcomes_mask'])
-        step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['outcomes_mask'])
-        log_metrics_dict = {'val_loss': batch_loss}
-        log_metrics_dict.update({'val_{}'.format(key): val for key, val in step_metrics.items()})
+        #                5. to only OOSS data
+        
+        # Step 1: Get all data with ooss_mask = 0. Filter it down to oots_mask = 1. Compute within sequence - OOTS loss on this
+        # Step 2: Get all data with ooss_mask = 1. Compute OOSS loss on this
+        # Step 3: Get all data with ooss_mask = 1 and oots_mask = 0. Compute within time - OOSS loss on this
+        # Step 4: Get all data with ooss_mask = 1 and oots_mask = 1. Compute OOTS-OOSS loss on this
+        # Step 5: Get all data with oots_mask = 1. Compute OOTS loss on this
+        
+        batch_labels_subset = batch_labels[(batch['ooss_mask']==0) & (batch['oots_mask']==1)]
+        ws_oots_batch_loss = 0.0
+        if batch_labels_subset.shape[0]>0:
+            batch_output_subset = batch_output[(batch['ooss_mask']==0) & (batch['oots_mask']==1)]
+            batch_mask_subset = batch['outcomes_mask'][(batch['ooss_mask']==0) & (batch['oots_mask']==1)]
+            ws_oots_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+            
+        batch_labels_subset = batch_labels[batch['ooss_mask']==1]
+        ooss_batch_loss = 0.0
+        if batch_labels_subset.shape[0]>0:
+            batch_output_subset = batch_output[batch['ooss_mask']==1]
+            batch_mask_subset = batch['outcomes_mask'][batch['ooss_mask']==1]
+            ooss_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+        
+        batch_labels_subset = batch_labels[(batch['ooss_mask']==1) & (batch['oots_mask']==0)]
+        wt_ooss_batch_loss = 0.0
+        if batch_labels_subset.shape[0]>0:
+            batch_output_subset = batch_output[(batch['ooss_mask']==1) & (batch['oots_mask']==0)]
+            batch_mask_subset = batch['outcomes_mask'][(batch['ooss_mask']==1) & (batch['oots_mask']==0)]
+            wt_ooss_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+        
+        batch_labels_subset = batch_labels[(batch['ooss_mask']==1) & (batch['oots_mask']==1)]
+        oots_ooss_batch_loss = 0.0
+        if batch_labels_subset.shape[0]>0:
+            batch_output_subset = batch_output[(batch['ooss_mask']==1) & (batch['oots_mask']==1)]
+            batch_mask_subset = batch['outcomes_mask'][(batch['ooss_mask']==1) & (batch['oots_mask']==1)]
+            oots_ooss_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+        
+        batch_labels_subset = batch_labels[batch['oots_mask']==1]
+        oots_batch_loss = 0.0
+        if batch_labels_subset.shape[0]>0:
+            batch_output_subset = batch_output[batch['oots_mask']==1]
+            batch_mask_subset = batch['outcomes_mask'][batch['oots_mask']==1]
+            oots_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+        
+        # batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['outcomes_mask'])
+        # step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['outcomes_mask'])
+        # log_metrics_dict = {'val_loss': batch_loss}
+        # log_metrics_dict.update({'val_{}'.format(key): val for key, val in step_metrics.items()})
+        # self.log_dict(log_metrics_dict, on_step=False, on_epoch=True)
+        # step_output = {'loss': batch_loss, 'pred': batch_output, 'outcomes': batch_labels, 'outcomes_mask': batch['outcomes_mask'], 
+        #             #    'infill_lang_mask': batch['mask'], 
+        #                'step': torch.tensor([self.global_step])}
+        # if seq_id is not None: step_output.update({'seq_id': seq_id})
+        # step_output.update(step_metrics)
+        # self.step_outputs['val'].append(step_output) 
+        log_metrics_dict = {'val_ws_oots_loss': ws_oots_batch_loss, 'val_ooss_loss': ooss_batch_loss,
+                            'val_wt_ooss_loss': wt_ooss_batch_loss, 'val_oots_ooss_loss': oots_ooss_batch_loss,
+                            'val_oots_loss': oots_batch_loss}
         self.log_dict(log_metrics_dict, on_step=False, on_epoch=True)
-        step_output = {'loss': batch_loss, 'pred': batch_output, 'outcomes': batch_labels, 'outcomes_mask': batch['outcomes_mask'], 
-                    #    'infill_lang_mask': batch['mask'], 
-                       'step': torch.tensor([self.global_step])}
+        step_output = {'ws_oots_loss': ws_oots_batch_loss, 'ooss_loss': ooss_batch_loss,
+                          'wt_ooss_loss': wt_ooss_batch_loss, 'oots_ooss_loss': oots_ooss_batch_loss,
+                            'oots_loss': oots_batch_loss, 'pred': batch_output, 'outcomes': batch_labels,
+                            'outcomes_mask': batch['outcomes_mask'], 'step': torch.tensor([self.global_step])}
         if seq_id is not None: step_output.update({'seq_id': seq_id})
-        step_output.update(step_metrics)
-        self.step_outputs['val'].append(step_output) 
+        self.step_outputs['val'].append(step_output)
+        
         return step_output
     
     
@@ -150,9 +203,20 @@ class MILightningModule(pl.LightningModule):
 
     def save_outputs(self, process:str) -> None:
         cat_outputs = self.process_epoch_end(self.step_outputs[process])
-        if 'loss' in cat_outputs:
-            avg_loss = torch.tensor(cat_outputs['loss']).mean()
-            self.epoch_loss[process].append(avg_loss.item())
+        
+        if process == 'train':
+            if 'loss' in cat_outputs:
+                avg_loss = torch.tensor(cat_outputs['loss']).mean()
+                self.epoch_loss[process].append(avg_loss.item())
+        elif process == 'val':
+            avg_ws_oots_loss = torch.tensor(cat_outputs['ws_oots_loss']).mean() if 'ws_oots_loss' in cat_outputs else None
+            avg_ooss_loss = torch.tensor(cat_outputs['ooss_loss']).mean() if 'ooss_loss' in cat_outputs else None
+            avg_wt_ooss_loss = torch.tensor(cat_outputs['wt_ooss_loss']).mean() if 'wt_ooss_loss' in cat_outputs else None
+            avg_oots_ooss_loss = torch.tensor(cat_outputs['oots_ooss_loss']).mean() if 'oots_ooss_loss' in cat_outputs else None
+            avg_oots_loss = torch.tensor(cat_outputs['oots_loss']).mean() if 'oots_loss' in cat_outputs else None
+            self.epoch_loss[process].append({'ws_oots_loss': avg_ws_oots_loss, 'ooss_loss': avg_ooss_loss,
+                                            'wt_ooss_loss': avg_wt_ooss_loss, 'oots_ooss_loss': avg_oots_ooss_loss,
+                                            'oots_loss': avg_oots_loss})
         if 'pred' in cat_outputs:
             self.labels[process]['preds'].append(cat_outputs['pred'])
         if 'outcomes' in cat_outputs:
@@ -161,6 +225,7 @@ class MILightningModule(pl.LightningModule):
             self.labels[process]['outcomes_mask'].append(cat_outputs['outcomes_mask'])
         if 'infill_lang_mask' in cat_outputs:
             self.labels[process]['infill_lang_mask'].append(cat_outputs['infill_lang_mask'])
+        # TODO: add ooss_mask and oots_mask to the labels 
         if self.metrics_fns:
             max_timesteps = max([i.shape[1] for i in cat_outputs['pred']])
             for batch_idx in range(len(cat_outputs['pred'])):
@@ -172,9 +237,9 @@ class MILightningModule(pl.LightningModule):
             pred_cat = torch.cat(cat_outputs['pred'], dim=0)
             target_cat = torch.cat(cat_outputs['outcomes'], dim=0)
             mask_cat = torch.cat(cat_outputs['outcomes_mask'], dim=0)
-            for metric_name, fn in self.metrics_fns.items():
-                value = fn(input=pred_cat, target=target_cat, mask=mask_cat)
-                self.epoch_metrics[process][metric_name].append(value.item())
+            # for metric_name, fn in self.metrics_fns.items():
+            #     value = fn(input=pred_cat, target=target_cat, mask=mask_cat)
+            #     self.epoch_metrics[process][metric_name].append(value.item())
 
 
     def on_train_epoch_end(self) -> None:
@@ -190,9 +255,14 @@ class MILightningModule(pl.LightningModule):
     def on_validation_epoch_end(self) -> None:
         if self.global_rank==0:
             self.save_outputs(process="val")
-            self.logger.log_metrics({'val_epoch_loss': self.epoch_loss['val'][-1]}, epoch=self.current_epoch)
-            for metric_name in self.metrics_fns:
-                self.logger.log_metrics({'val_epoch_{}'.format(metric_name): self.epoch_metrics['val'][metric_name][-1]}, epoch=self.current_epoch)
+            self.logger.log_metrics({'val_epoch_ws_oots_loss': self.epoch_loss['val'][-1]['ws_oots_loss']}, epoch=self.current_epoch)
+            self.logger.log_metrics({'val_epoch_ooss_loss': self.epoch_loss['val'][-1]['ooss_loss']}, epoch=self.current_epoch)
+            self.logger.log_metrics({'val_epoch_wt_ooss_loss': self.epoch_loss['val'][-1]['wt_ooss_loss']}, epoch=self.current_epoch)
+            self.logger.log_metrics({'val_epoch_oots_ooss_loss': self.epoch_loss['val'][-1]['oots_ooss_loss']}, epoch=self.current_epoch)
+            self.logger.log_metrics({'val_epoch_oots_loss': self.epoch_loss['val'][-1]['oots_loss']}, epoch=self.current_epoch)
+            # self.logger.log_metrics({'val_epoch_loss': self.epoch_loss['val'][-1]}, epoch=self.current_epoch)
+            # for metric_name in self.metrics_fns:
+            #     self.logger.log_metrics({'val_epoch_{}'.format(metric_name): self.epoch_metrics['val'][metric_name][-1]}, epoch=self.current_epoch)
             self.step_outputs['val'].clear()
 
 
