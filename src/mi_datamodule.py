@@ -31,7 +31,7 @@ def get_dataset(data:Dict):
     return dataset
 
 
-def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Dataset]=None, test_data:Union[Dict, Dataset]=None, val_folds:List=None, test_folds:List=None, fold_col:str='folds', time_partition:int=None):
+def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Dataset]=None, test_data:Union[Dict, Dataset]=None, val_folds:List=None, test_folds:List=None, fold_col:str='folds'):
     """
         Returns the Huggingface datasets.DatasetDict.
         Each input dictionary contains three key value pairs:
@@ -66,6 +66,9 @@ def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Datase
     if 'val' in datasetDict: 
         datasetDict['val'] = datasetDict['val'].remove_columns(fold_col)
         datasetDict['val']['ooss_mask'] = [1]*len(datasetDict['val']['seq_id'])
+        # TODO Scott: Verify if this works. 
+        for key in datasetDict['val'].features:
+            datasetDict['val'][key]  = datasetDict['val'][key] + datasetDict['train'][key]
         
     if 'test' in datasetDict:
         datasetDict['test'] = datasetDict['test'].remove_columns(fold_col)
@@ -184,7 +187,7 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
                 feat[k] = outcomes
             batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
             if k=="outcomes_mask": batch[k] = batch[k].to(torch.bool) 
-        elif k=="pad_mask" or k=="time_ids" or k=="infill_mask" or k=="oots_mask" or k.startswith("mask"):
+        elif k=="pad_mask" or k=="time_ids" or k=="infill_mask" or k.startswith("mask"):
             padding_value = -1 if k=="time_ids" else (1 if k=="pad_mask" or k.startswith("mask") or k=="oots_mask" else 0)
             batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=padding_value, batch_first=True)
             if k == "pad_mask" or k == "infill_mask" or k.startswith("mask") or k == "outcomes_mask" or k == "oots_mask" or k == "ooss_mask": 
@@ -200,9 +203,9 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
             # raise Warning("Key {} not supported for batching. Leaving it out of the dataloaders".format(k))
     pdb.set_trace()
     if partition == 'train':
-        train_len = max([len(feat['oots_mask']) - sum(feat['oots_mask']) for feat in features) #gets integer cutoff for oots segment, only supports constant oots range
+        train_len = max([len(feat['oots_mask']) - sum(feat['oots_mask']) for feat in features]) #gets integer cutoff for oots segment, only supports constant oots range
         for k, _ in first.items():
-            if len(batch[k].shape) > 1
+            if len(batch[k].shape) > 1:
                 batch[k] = batch[k][:,:train_len]
     return batch
 
