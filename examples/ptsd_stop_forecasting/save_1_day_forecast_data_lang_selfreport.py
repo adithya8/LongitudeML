@@ -492,8 +492,16 @@ if __name__ == '__main__':
     
     train_time_ids = list(range(0, 40))
     merged_dataset = merged_dataset.map(lambda x: create_oots_mask(x, train_time_ids))
+    
+    # Filter sequences that don't have enough outcomes within train time and eval time ids. Threshold = 20/10
+    def outcomes_filter_sequences(instance):
+        outcomes_mask = [mask[0] for mask in instance['outcomes_mask']]
+        return sum(outcomes_mask[:40]) >= 20 and sum(outcomes_mask[40:]) >= 10
+    
+    merged_dataset = merged_dataset.filter(outcomes_filter_sequences)
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/todayPCL_selfreport_PCL_1_days_ahead_max90days_v3_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_base_L11_rpca64_combined_PCL_1_days_ahead_max90days_v4_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_merged_PCL_1_days_ahead_max90days_v4_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_hypLexNormalized_merged_PCL_1_days_ahead_max60days_v4_40combined_5fold')
+    print (merged_dataset)
     merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_hypLexNormalized_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max60days_v4_40combined_5fold_oots')
