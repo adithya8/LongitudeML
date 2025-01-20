@@ -23,7 +23,7 @@ class MILightningModule(pl.LightningModule):
         elif args.num_classes==2:
             self.loss = nn.BCEWithLogitsLoss()
         elif args.num_classes==1:
-            self.loss = mi_mse #nn.MSELoss()
+            self.loss = mi_smape #nn.MSELoss()
             # self.metrics_fns = {'mse': mi_mse}
             self.metrics_fns = {'smape': mi_smape, 'pearsonr': mi_pearsonr, 'mse': mi_mse}
         else:
@@ -99,40 +99,35 @@ class MILightningModule(pl.LightningModule):
         # Step 4: Get all data with ooss_mask = 1 and oots_mask = 1. Compute OOTS-OOSS loss on this
         # Step 5: Get all data with oots_mask = 1. Compute OOTS loss on this
         
-        batch_labels_subset = batch_labels[(batch['ooss_mask']==0) & (batch['oots_mask']==1)]
-        ws_oots_batch_loss = 0.0
-        if batch_labels_subset.shape[0]>0:
-            batch_output_subset = batch_output[(batch['ooss_mask']==0) & (batch['oots_mask']==1)]
-            batch_mask_subset = batch['outcomes_mask'][(batch['ooss_mask']==0) & (batch['oots_mask']==1)]
-            ws_oots_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+        ws_oots_batch_loss = torch.tensor([0.0])
+        if torch.sum((batch['ooss_mask']==0) & (batch['oots_mask']==1))>0:
+            batch_mask_subset = torch.where((batch['ooss_mask']==0).unsqueeze(-1) & (batch['oots_mask']==1).unsqueeze(-1), 
+                                            batch['outcomes_mask'], torch.zeros_like(batch['outcomes_mask']))
+            ws_oots_batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch_mask_subset)
             
-        batch_labels_subset = batch_labels[batch['ooss_mask']==1]
-        ooss_batch_loss = 0.0
-        if batch_labels_subset.shape[0]>0:
-            batch_output_subset = batch_output[batch['ooss_mask']==1]
-            batch_mask_subset = batch['outcomes_mask'][batch['ooss_mask']==1]
-            ooss_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+        ooss_batch_loss = torch.tensor([0.0])
+        if torch.sum(batch['ooss_mask']==1)>0:
+            batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1), batch['outcomes_mask'], 
+                                            torch.zeros_like(batch['outcomes_mask']))
+            ooss_batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch_mask_subset)
         
-        batch_labels_subset = batch_labels[(batch['ooss_mask']==1) & (batch['oots_mask']==0)]
-        wt_ooss_batch_loss = 0.0
-        if batch_labels_subset.shape[0]>0:
-            batch_output_subset = batch_output[(batch['ooss_mask']==1) & (batch['oots_mask']==0)]
-            batch_mask_subset = batch['outcomes_mask'][(batch['ooss_mask']==1) & (batch['oots_mask']==0)]
-            wt_ooss_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+        wt_ooss_batch_loss = torch.tensor([0.0])
+        if torch.sum((batch['ooss_mask']==1) & (batch['oots_mask']==0))>0:
+            batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1) & (batch['oots_mask']==0).unsqueeze(-1), 
+                                            batch['outcomes_mask'], torch.zeros_like(batch['outcomes_mask']))
+            wt_ooss_batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch_mask_subset)
         
-        batch_labels_subset = batch_labels[(batch['ooss_mask']==1) & (batch['oots_mask']==1)]
-        oots_ooss_batch_loss = 0.0
-        if batch_labels_subset.shape[0]>0:
-            batch_output_subset = batch_output[(batch['ooss_mask']==1) & (batch['oots_mask']==1)]
-            batch_mask_subset = batch['outcomes_mask'][(batch['ooss_mask']==1) & (batch['oots_mask']==1)]
-            oots_ooss_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+        oots_ooss_batch_loss = torch.tensor([0.0])
+        if torch.sum((batch['ooss_mask']==1) & (batch['oots_mask']==1))>0:
+            batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1) & (batch['oots_mask']==1).unsqueeze(-1), 
+                                            batch['outcomes_mask'], torch.zeros_like(batch['outcomes_mask']))
+            oots_ooss_batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch_mask_subset)
         
-        batch_labels_subset = batch_labels[batch['oots_mask']==1]
-        oots_batch_loss = 0.0
-        if batch_labels_subset.shape[0]>0:
-            batch_output_subset = batch_output[batch['oots_mask']==1]
-            batch_mask_subset = batch['outcomes_mask'][batch['oots_mask']==1]
-            oots_batch_loss = self.loss(input=batch_output_subset, target=batch_labels_subset, mask=batch_mask_subset)
+        oots_batch_loss = torch.tensor([0.0])
+        if torch.sum(batch['oots_mask']==1)>0:
+            batch_mask_subset = torch.where((batch['oots_mask']==1).unsqueeze(-1), batch['outcomes_mask'], 
+                                            torch.zeros_like(batch['outcomes_mask']))
+            oots_batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch_mask_subset)
         
         # batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['outcomes_mask'])
         # step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['outcomes_mask'])
@@ -155,7 +150,7 @@ class MILightningModule(pl.LightningModule):
                             'outcomes_mask': batch['outcomes_mask'], 'step': torch.tensor([self.global_step])}
         if seq_id is not None: step_output.update({'seq_id': seq_id})
         self.step_outputs['val'].append(step_output)
-        
+
         return step_output
     
     
@@ -196,7 +191,10 @@ class MILightningModule(pl.LightningModule):
         cat_outputs = dict([(k,[]) for k in keys])
         for _, step_output in enumerate(step_outputs):
             for k in keys:
-                cat_outputs[k].append(step_output[k].detach().clone().cpu())
+                if step_output[k] is not None:
+                    cat_outputs[k].append(step_output[k].detach().clone().cpu())
+                else:
+                    cat_outputs[k].append(None)
             
         return cat_outputs 
          
@@ -237,9 +235,9 @@ class MILightningModule(pl.LightningModule):
             pred_cat = torch.cat(cat_outputs['pred'], dim=0)
             target_cat = torch.cat(cat_outputs['outcomes'], dim=0)
             mask_cat = torch.cat(cat_outputs['outcomes_mask'], dim=0)
-            # for metric_name, fn in self.metrics_fns.items():
-            #     value = fn(input=pred_cat, target=target_cat, mask=mask_cat)
-            #     self.epoch_metrics[process][metric_name].append(value.item())
+            for metric_name, fn in self.metrics_fns.items():
+                value = fn(input=pred_cat, target=target_cat, mask=mask_cat)
+                self.epoch_metrics[process][metric_name].append(value.item())
 
 
     def on_train_epoch_end(self) -> None:
