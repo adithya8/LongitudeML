@@ -31,7 +31,6 @@ if __name__ == '__main__':
     # data = data.rename_columns({'embeddings_hypLex': 'embeddings', 'mask_hypLex': 'mask'})
     
     datasetDict = get_datasetDict(train_data=data, val_folds=[0])
-
     # Set the seed for reproducibility
     pl.seed_everything(args.seed)
     
@@ -45,6 +44,9 @@ if __name__ == '__main__':
 
     # TODO: collate function should be handled by the task
     dataloaderModule = MIDataLoaderModule(args, datasetDict)
+
+    print ('Train dataset size: {}'.format(len(dataloaderModule.train_dataloader())))
+    print ('Val dataset size: {}'.format(len(dataloaderModule.val_dataloader())))
 
     if args.model_type == 'gru':
         model = recurrent(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, 
@@ -75,12 +77,13 @@ if __name__ == '__main__':
         else:
             raise ValueError('Invalid custom model: {}'.format(args.custom_model))        
         
-    callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
-                                        mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)] if args.early_stopping_patience>0 else []
-    callbacks.append(pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1, save_last=False))
+    # callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
+                                        # mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)] if args.early_stopping_patience>0 else []
+    # callbacks.append(pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1, save_last=False))
 
     trainer = pl.Trainer(accelerator='gpu', devices=1, default_root_dir=args.output_dir, logger=logger,
-                        callbacks=callbacks, min_epochs=args.min_epochs, max_epochs=args.epochs)
+                        # callbacks=callbacks, 
+                        min_epochs=args.min_epochs, max_epochs=args.epochs)
         
     lightning_module = MILightningModule(args, model) 
     
