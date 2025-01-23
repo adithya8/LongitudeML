@@ -57,7 +57,7 @@ def create_outcomes_mask(instance, outcomes_names:List[str]):
     sorted_time_ids = sorted(instance['time_ids'])
     # missing_time_ids = set(range(sorted_time_ids[0], sorted_time_ids[-1]+1)) - set(sorted_time_ids)
     missing_time_ids = set(range(0, sorted_time_ids[-1]+1)) - set(sorted_time_ids)
-    min_time_id = sorted_time_ids[0]
+    min_time_id = 0 #sorted_time_ids[0]
     infill_mask = []  
     # for time_id in range(sorted_time_ids[0], sorted_time_ids[-1]+1):
     for time_id in range(0, sorted_time_ids[-1]+1):
