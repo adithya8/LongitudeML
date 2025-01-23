@@ -99,31 +99,31 @@ class MILightningModule(pl.LightningModule):
         # Step 4: Get all data with ooss_mask = 1 and oots_mask = 1. Compute OOTS-OOSS loss on this
         # Step 5: Get all data with oots_mask = 1. Compute OOTS loss on this
         
-        ws_oots_batch_loss = torch.tensor([0.0])
+        ws_oots_batch_loss = torch.tensor([-1.0])
         if torch.sum((batch['ooss_mask']==0) & (batch['oots_mask']==1))>0:
             batch_mask_subset = torch.where((batch['ooss_mask']==0).unsqueeze(-1) & (batch['oots_mask']==1).unsqueeze(-1), 
                                             batch['outcomes_mask'], torch.zeros_like(batch['outcomes_mask']))
             ws_oots_batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch_mask_subset)
-            
-        ooss_batch_loss = torch.tensor([0.0])
+        
+        ooss_batch_loss = torch.tensor([-1.0])
         if torch.sum(batch['ooss_mask']==1)>0:
             batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1), batch['outcomes_mask'], 
                                             torch.zeros_like(batch['outcomes_mask']))
             ooss_batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch_mask_subset)
         
-        wt_ooss_batch_loss = torch.tensor([0.0])
+        wt_ooss_batch_loss = torch.tensor([-1.0])
         if torch.sum((batch['ooss_mask']==1) & (batch['oots_mask']==0))>0:
             batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1) & (batch['oots_mask']==0).unsqueeze(-1), 
                                             batch['outcomes_mask'], torch.zeros_like(batch['outcomes_mask']))
             wt_ooss_batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch_mask_subset)
         
-        oots_ooss_batch_loss = torch.tensor([0.0])
+        oots_ooss_batch_loss = torch.tensor([-1.0])
         if torch.sum((batch['ooss_mask']==1) & (batch['oots_mask']==1))>0:
             batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1) & (batch['oots_mask']==1).unsqueeze(-1), 
                                             batch['outcomes_mask'], torch.zeros_like(batch['outcomes_mask']))
             oots_ooss_batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch_mask_subset)
         
-        oots_batch_loss = torch.tensor([0.0])
+        oots_batch_loss = torch.tensor([-1.0])
         if torch.sum(batch['oots_mask']==1)>0:
             batch_mask_subset = torch.where((batch['oots_mask']==1).unsqueeze(-1), batch['outcomes_mask'], 
                                             torch.zeros_like(batch['outcomes_mask']))
@@ -207,11 +207,11 @@ class MILightningModule(pl.LightningModule):
                 avg_loss = torch.tensor(cat_outputs['loss']).mean()
                 self.epoch_loss[process].append(avg_loss.item())
         elif process == 'val':
-            avg_ws_oots_loss = torch.tensor(cat_outputs['ws_oots_loss']).mean() if 'ws_oots_loss' in cat_outputs else None
-            avg_ooss_loss = torch.tensor(cat_outputs['ooss_loss']).mean() if 'ooss_loss' in cat_outputs else None
-            avg_wt_ooss_loss = torch.tensor(cat_outputs['wt_ooss_loss']).mean() if 'wt_ooss_loss' in cat_outputs else None
-            avg_oots_ooss_loss = torch.tensor(cat_outputs['oots_ooss_loss']).mean() if 'oots_ooss_loss' in cat_outputs else None
-            avg_oots_loss = torch.tensor(cat_outputs['oots_loss']).mean() if 'oots_loss' in cat_outputs else None
+            avg_ws_oots_loss = torch.tensor([x for x in cat_outputs['ws_oots_loss'] if x >= 0]).mean() if 'ws_oots_loss' in cat_outputs else None
+            avg_ooss_loss = torch.tensor([x for x in cat_outputs['ooss_loss'] if x >= 0]).mean() if 'ooss_loss' in cat_outputs else None
+            avg_wt_ooss_loss = torch.tensor([x for x in cat_outputs['wt_ooss_loss'] if x >= 0]).mean() if 'wt_ooss_loss' in cat_outputs else None
+            avg_oots_ooss_loss = torch.tensor([x for x in cat_outputs['oots_ooss_loss'] if x >= 0]).mean() if 'oots_ooss_loss' in cat_outputs else None
+            avg_oots_loss = torch.tensor([x for x in cat_outputs['oots_loss'] if x >= 0]).mean() if 'oots_loss' in cat_outputs else None
             self.epoch_loss[process].append({'ws_oots_loss': avg_ws_oots_loss, 'ooss_loss': avg_ooss_loss,
                                             'wt_ooss_loss': avg_wt_ooss_loss, 'oots_ooss_loss': avg_oots_ooss_loss,
                                             'oots_loss': avg_oots_loss})
