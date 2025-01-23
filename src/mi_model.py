@@ -94,7 +94,18 @@ class PositionalEncoding(nn.Module):
         self.positional_embedding = torch.nn.Embedding(self.max_len, self.d_model)
         
     def forward(self, x):
-        x = x + self.positional_embedding(torch.arange(x.shape[1], device=x.device))
+        # Check if x.shape[1] < max_len, 
+        # If yes, directly add the positional embeddings of arange(x.shape[1])
+        # If no, find the remainder of (x.shape[1] - max_len), and add poistional embedding for 0-max_len timesteps of x to regular positional embeddings, for the remaining timesteps, find the timestep that produces the same remainder when dividing max_len by 7 and can also hold the remaining timesteps.
+        if x.shape[1] <= self.max_len:
+            x = x + self.positional_embedding(torch.arange(x.shape[1], device=x.device))
+        else:
+            remainder = x.shape[1] - self.max_len
+            start_position = self.max_len - remainder
+            while start_position%7 == self.max_len%7: start_position -= 1
+            pos_embs_maxlen = self.positional_embedding(torch.arange(self.max_len, device=x.device))
+            pos_embs_remainder = self.positional_embedding(torch.arange(start_position, start_position+remainder, device=x.device))
+            x  = x + torch.cat([pos_embs_maxlen, pos_embs_remainder], dim=0)
         return x
 
     
@@ -123,8 +134,8 @@ class AutoRegressiveTransformer(nn.Module):
         # init infill_embeddings of side (input_size, ) which can be learnt when embeddings for a timestep is missing
         # Perform Xavier initialization for the infill_embeddings.
         # std = gain * sqrt(2.0 / (fan_in + fan_out)); gain = 1.0, fan_in = 1, fan_out = self.input_size
-        std = 1.0 * (2.0 / (1 + self.input_size))**0.5
-        self.infill_embeddings = nn.Parameter(torch.normal(0, std**2, (self.input_size,)))        
+        #std = 1.0 * (2.0 / (1 + self.input_size))**0.5
+        #self.infill_embeddings = nn.Parameter(torch.normal(0, std**2, (self.input_size,)))        
         self.positional_encoding = PositionalEncoding(self.input_size, self.max_len)
         self.output_dropout_layer = nn.Dropout(self.output_dropout)
         # self.ln = nn.LayerNorm(self.input_size) # layernorm is already present in the TransformerEncoderLayer
@@ -157,7 +168,7 @@ class AutoRegressiveTransformer(nn.Module):
         infill_mask = torch.where((kwargs['time_ids']!=-1) & mask, True, False).to(embeddings.device)
         # adding infill_embeddings whereever the mask is True
 
-        output_rep = embeddings + (infill_mask.unsqueeze(-1)*self.infill_embeddings)
+        output_rep = embeddings #+ (infill_mask.unsqueeze(-1)*self.infill_embeddings)
         # adding positional encoding to the embeddings
         output_rep = self.positional_encoding(embeddings)
         # src_key_padding_mask only to mask out the padded tokens, i.e., timestep with time_ids = -1. 
