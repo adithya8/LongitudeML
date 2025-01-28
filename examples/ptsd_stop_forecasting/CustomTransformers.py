@@ -100,11 +100,13 @@ class projectedSubscaleTransformer(nn.Module):
     def __init__(self,subscalesformer:AutoRegressiveTransformer):
         super(projectedSubscaleTransformer,self).__init__()
         self.subscalesformer = subscalesformer
+        self.layernorm = nn.LayerNorm(4,elementwise_affine=False)
         self.Linear = nn.Linear(in_features=5,out_features=4)
 
     def forward(self,embeddings,mask,**kwargs):
         output_rep = self.Linear(embeddings)
-        output = self.subscalesformer(embeddings,mask,**kwargs)
+        output_rep = self.layernorm(output_rep)
+        output = self.subscalesformer(output_rep,mask,**kwargs)
 
         return output
 
