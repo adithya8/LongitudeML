@@ -96,11 +96,24 @@ class LexTransformer(nn.Module):
         # output = self.relu(output)
         return output
 
+class projectedSubscaleTransformer(nn.Module):
+    def __init__(self,subscalesformer:AutoRegressiveTransformer):
+        super(projectedSubscaleTransformer,self).__init__()
+        self.subscalesformer = subscalesformer
+        self.Linear = nn.Linear(in_features=5,out_features=4)
+
+    def forward(self,embeddings,mask,**kwargs):
+        output_rep = self.Linear(embeddings)
+        output = self.subscalesformer(embeddings,mask,**kwargs)
+
+        return output
+
 TRNS_ARCHS = {
     "totalpclformer": TotalPCLFormer,
     "wtcpclsubscaleformer": WTCPCLSubscaleFormer,
     "pclsubscaleformer": PCLSubscaleFormer,
     "dailylangformer": DailyLangFormer,
     "langsubscaledualcontextformer": LangSubscaleDualContextFormer,
-    "lextransformer": LexTransformer
+    "lextransformer": LexTransformer,
+    "projectedsubscaleformer":projectedSubscaleTransformer
 }
