@@ -106,8 +106,7 @@ class projectedSubscaleTransformer(nn.Module):
     def forward(self,embeddings,mask,**kwargs):
         output_rep = self.Linear(embeddings)
         output_rep = self.layernorm(output_rep)
-        output = self.subscalesformer(output_rep,mask,**kwargs)
-
+        output = self.subscalesformer(embeddings=output_rep,mask=mask,**kwargs)
         return output
 
 TRNS_ARCHS = {
