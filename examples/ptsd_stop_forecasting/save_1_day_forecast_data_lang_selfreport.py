@@ -14,9 +14,9 @@ from datasets import Dataset
 from src import DLATKDataGetter
 from src import get_dataset
 
-def read_dlatk_data(base_dict:dict):
+def read_dlatk_data(base_dict:dict, qry_seq_time_id_table:str=None):
     dlatk_data_getter = DLATKDataGetter(**base_dict)
-    long_embs_data = dlatk_data_getter.get_long_features()
+    long_embs_data = dlatk_data_getter.get_long_features(qry_seq_time_id_table=qry_seq_time_id_table)
     long_outcomes_data = dlatk_data_getter.get_long_outcomes()
     long_embs, long_outcomes = dlatk_data_getter.intersect_seqids(deepcopy(long_embs_data), deepcopy(long_outcomes_data))
     
@@ -40,7 +40,6 @@ def create_embs_mask(instance):
         instance['time_ids'].insert(time_id-min_time_id, time_id)
         # instance['embeddings'][0].insert(time_id-min_time_id, [0]*len(instance['embeddings'][0][time_id-min_time_id-1])) # 0 infilling is not better than copying the previous vector
         instance['embeddings'].insert(time_id-min_time_id, instance['embeddings'][time_id-min_time_id-1])
-        instance['num_tokens'].insert(time_id-min_time_id, None)
     instance['mask'] = infill_mask
     
     return instance
@@ -303,8 +302,8 @@ def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=No
                         merged_instance["mask{}".format(suffix)].append(feature_instance['mask'][feature_time_idx])
                         infill_emb_feats[feature_name] = feature_instance[feature_name][feature_time_idx]
                 else:
-                    for suffix in feature_suffixes[idx]:
-                        merged_instance["{}{}".format(feature_name, suffix)].append(infill_emb_feats[feature_names[idx][0]])
+                    for suffix, feature_name in zip(feature_suffixes[idx], feature_names[idx]):
+                        merged_instance["{}{}".format(feature_name, suffix)].append(infill_emb_feats[feature_name])
                         merged_instance["mask{}".format(suffix)].append(1)
             merged_instance["time_ids"].append(time_id)
         return merged_instance
@@ -321,13 +320,15 @@ def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=No
 
 if __name__ == '__main__':
     
-    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v4", 
-            feature_tables=["feat$PCL_sr$outcomes_v4$user_day_id"],
+    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v5", 
+            feature_tables=["feat$PCL_sr$outcomes_v6$user_day_id"],
             # feature_tables=["feat$dr_rpca_32_roba_meL11$whisper_transcripts_v3$user_day_id"],
-            outcome_table="outcomes_v4_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
+            outcome_table="outcomes_v6_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
             correl_field="user_id", messageid_field="user_day_id")
     
-    long_sr_features, long_outcomes = read_dlatk_data(base_dict=base_dict)
+    # qry_seq_time_id_table is the table that contains the qury_id, sequence ids and time_ids that correspond to the features table.
+    # TO DO:  
+    long_sr_features, long_outcomes = read_dlatk_data(base_dict=base_dict, qry_seq_time_id_table="outcomes_v6_PCL_noNULLs")
     
     if 'embeddings_names' in long_sr_features:
         embeddings_names = long_sr_features.pop('embeddings_names')
@@ -346,16 +347,16 @@ if __name__ == '__main__':
             instance['embeddings'][idx] = ((embs_np - 1.0) / (5.0 - 1.0)).tolist()
         return instance
 
-    long_sr_features = long_sr_features.map(minmax_normalization)
+    # long_sr_features = long_sr_features.map(minmax_normalization)
 
     # CHECK for user 3586 before and after creating mask
     long_sr_features = long_sr_features.map(create_embs_mask)
     print ("SR mask pattern created.")
     
-    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v4", 
-                feature_tables=["feat$dr_rpca_64_roba_meL11$whisper_transcripts_v4$user_day_id"],
+    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v5", 
+                feature_tables=["feat$dr_rpca_64_roba_meL23$whisper_transcripts_v5$user_day_id"],
                 # feature_tables=["feat$dr_rpca_32_roba_meL11$whisper_transcripts_v3$user_day_id"],
-                outcome_table="outcomes_v4_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
+                outcome_table="outcomes_v6_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
                 correl_field="user_id", messageid_field="user_day_id")
     
     long_lang_features, _ = read_dlatk_data(base_dict=base_dict)
@@ -371,6 +372,7 @@ if __name__ == '__main__':
     long_lang_features = long_lang_features.map(create_embs_mask)
     print ("Lang mask pattern created.")
     
+    """
     base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v4",
                 feature_tables=["feat$cat_dd_hypLex_w$whisper_transcripts_v4$user_day_id$1gra"],
                 outcome_table="outcomes_v4_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id",
@@ -404,10 +406,11 @@ if __name__ == '__main__':
     
     long_hypLex_features = long_hypLex_features.map(create_embs_mask)
     print ("HypLex mask pattern created.")
+    """
     
-    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v4",
-                    feature_tables=["feat$p_ridg_Pcl_wtc$whisper_transcripts_v4$user_day_id"],
-                    outcome_table="outcomes_v4_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id",
+    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v5",
+                    feature_tables=["feat$p_ridg_Pcl_wtc$whisper_transcripts_v5$user_day_id"],
+                    outcome_table="outcomes_v6_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id",
                     correl_field="user_id", messageid_field="user_day_id")
     
     long_wtc_pclsubscales, _ = read_dlatk_data(base_dict=base_dict)
@@ -416,15 +419,17 @@ if __name__ == '__main__':
         embeddings_names = long_wtc_pclsubscales.pop('embeddings_names')
         long_wtc_pclsubscales = get_dataset(long_wtc_pclsubscales)
     
-    long_wtc_pclsubscales = get_normalized_embeddings(long_wtc_pclsubscales)
+    # long_wtc_pclsubscales = get_normalized_embeddings(long_wtc_pclsubscales)
     
     long_wtc_pclsubscales = long_wtc_pclsubscales.map(create_embs_mask)
     print ("WTC PCL subscales mask pattern created.")
     
+    ###############################
+    
     long_outcomes = long_outcomes.map(lambda x: create_outcomes_mask(x, outcomes_names))
     print ("Outcomes mask pattern created.")
 
-    long_merged_features = merge_features([long_sr_features, long_lang_features, long_hypLex_features, long_wtc_pclsubscales], ['_subscales', '_lang', '_hypLex', '_wtcSubscales'])
+    long_merged_features = merge_features([long_sr_features, long_lang_features, long_wtc_pclsubscales], ['_subscales', '_lang', '_wtcSubscales'])
     
     # long_comb_features = concatenate_features(long_sr_features, long_lang_features)
     
@@ -436,12 +441,12 @@ if __name__ == '__main__':
         time_ids = instance['time_ids']
         if time_ids[-1] > max_time_id:
             # find the first time_id that is greater than max_time_id. The data can have missing time_ids
-            idx = next((i for i, time_id in enumerate(time_ids) if time_id > max_time_id), None)
+            idx = next((i for i, time_id in enumerate(time_ids) if time_id > max_time_id), len(time_ids))
             for key in instance:
                 if isinstance(instance[key], list): instance[key] = instance[key][:idx]
         return instance
     
-    merged_dataset = merged_dataset.map(lambda x: truncate_sequences(x, 59))
+    merged_dataset_fulllength = merged_dataset.map(lambda x: truncate_sequences(x, 89))
     
     # Filter to sequences with at least 40 time_ids with either language or outcomes
     # To do that, sum infill_embs_mask and infill_outcomes_mask to the dataset and filter if the number of 1s/2s in the mask is less than 40. 
@@ -450,9 +455,9 @@ if __name__ == '__main__':
         embs_mask = [1 if i==0 else 0 for i in instance['mask_lang']]
         outcomes_mask = [mask[0] for mask in instance['outcomes_mask']]
         summed_mask = [(l+o)>0 for l, o in zip(embs_mask, outcomes_mask)]
-        return sum(summed_mask) >= 40
+        return sum(summed_mask) >= 60
     
-    merged_dataset = merged_dataset.filter(filter_sequences)
+    merged_dataset_fulllength = merged_dataset_fulllength.filter(filter_sequences)
     
     # Split the dataset into train, val
     # Stratify based on mean the stddev of the first outcome.
@@ -475,9 +480,9 @@ if __name__ == '__main__':
         batch["folds"] = np.random.permutation(len(batch["seq_id"])) #np.random.randint(0, num_folds, len(batch["seq_id"]))
         return batch
     
-    merged_dataset = merged_dataset.map(compute_mean_std)
-    merged_dataset = merged_dataset.sort('std_outcome').sort('avg_outcome')
-    merged_dataset = merged_dataset.map(stratify_sequences, batched=True, batch_size=num_folds, remove_columns=['avg_outcome', 'std_outcome'])
+    merged_dataset_fulllength = merged_dataset_fulllength.map(compute_mean_std)
+    merged_dataset_fulllength = merged_dataset_fulllength.sort('std_outcome').sort('avg_outcome')
+    merged_dataset_fulllength = merged_dataset_fulllength.map(stratify_sequences, batched=True, batch_size=num_folds, remove_columns=['avg_outcome', 'std_outcome'])
     
     # TODO: Create a function that would add another key:value pair to this dataset object maintaining a list for each sequence indicating whether a time_id belongs to train or eval. 
     # The function definition: def create_train_eval_time_mask(instance, train_time_ids: List[int], eval_time_ids: List[int]=None) -> dict:
@@ -490,18 +495,38 @@ if __name__ == '__main__':
         instance['oots_mask'] = oots_mask
         return instance
     
-    train_time_ids = list(range(0, 40))
-    merged_dataset = merged_dataset.map(lambda x: create_oots_mask(x, train_time_ids))
+    train_time_ids = list(range(0, 59))
+    merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: create_oots_mask(x, train_time_ids))
     
-    # Filter sequences that don't have enough outcomes within train time and eval time ids. Threshold = 20/10
+    # Filter sequences that don't have enough outcomes within train time and eval time ids. Threshold = 50% of the days in train and dev set should have outcomes 
     def outcomes_filter_sequences(instance):
         outcomes_mask = [mask[0] for mask in instance['outcomes_mask']]
-        return sum(outcomes_mask[:40]) >= 20 and sum(outcomes_mask[40:]) >= 10
+        return sum(outcomes_mask[:60]) >= 30 and sum(outcomes_mask[60:]) >= 15 and sum(outcomes_mask[:40]) >= 20 and sum(outcomes_mask[40:60]) >= 10
     
-    merged_dataset = merged_dataset.filter(outcomes_filter_sequences)
+    merged_dataset_fulllength = merged_dataset_fulllength.filter(outcomes_filter_sequences)
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/todayPCL_selfreport_PCL_1_days_ahead_max90days_v3_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_base_L11_rpca64_combined_PCL_1_days_ahead_max90days_v4_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_merged_PCL_1_days_ahead_max90days_v4_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_hypLexNormalized_merged_PCL_1_days_ahead_max60days_v4_40combined_5fold')
-    print (merged_dataset)
-    merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_hypLexNormalized_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max60days_v4_40combined_5fold_oots')
+    # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_hypLexNormalized_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max60days_v4_40combined_5fold_oots')
+    print (merged_dataset_fulllength)
+    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max90days_v6_60combined_5fold_oots')
+    
+    ###############################
+    #  Now we create a dev set out of this, by cutting off one fold as the held out sequence and cutting off time points after 60 days as held out time 
+    
+    merged_dataset_devset = merged_dataset_fulllength.filter(lambda x: x['folds'] != 4)
+    
+    merged_dataset_devset = merged_dataset_devset.map(lambda x: truncate_sequences(x, 59))
+    train_time_ids = list(range(0, 39))
+    merged_dataset_devset = merged_dataset_devset.map(lambda x: create_oots_mask(x, train_time_ids))
+    
+    print (merged_dataset_devset)
+    def outcomes_filter_sequences_dev(instance):
+        outcomes_mask = [mask[0] for mask in instance['outcomes_mask']]
+        return sum(outcomes_mask[:40]) >= 20 and sum(outcomes_mask[40:]) >= 10
+    
+    merged_dataset_devset = merged_dataset_devset.filter(outcomes_filter_sequences_dev)
+    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max60days_v6_40combined_devset_oots')
+    print (merged_dataset_devset)
+    ###############################    
