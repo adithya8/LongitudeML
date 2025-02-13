@@ -20,6 +20,7 @@ from src import (
 )
 
 from CustomTransformers import TRNS_ARCHS      
+from BaselineModels import BSLN_ARCHS
 
 if __name__ == '__main__':
     
@@ -45,10 +46,17 @@ if __name__ == '__main__':
     # TODO: collate function should be handled by the task
     dataloaderModule = MIDataLoaderModule(args, datasetDict)
 
-    print ('Train dataset size: {}'.format(len(dataloaderModule.train_dataloader())))
-    print ('Val dataset size: {}'.format(len(dataloaderModule.val_dataloader())))
+    print (f'Train dataset size: {len(dataloaderModule.train_dataloader())}')
+    print (f'Val dataset size: {len(dataloaderModule.val_dataloader())}')
 
-    if args.model_type == 'gru':
+    if args.model_type == 'baseline':
+        if args.custom_model == 'linear':
+            model = BSLN_ARCHS[args.custom_model](input_size=args.input_size, output_size=args.num_outcomes)
+        elif args.custom_model == 'linear_ln':
+            model = BSLN_ARCHS[args.custom_model](input_size=args.input_size, output_size=args.num_outcomes, elementwise_affine=True)
+        else:
+            raise ValueError('Invalid custom model: {}'.format(args.custom_model))
+    elif args.model_type == 'gru':
         model = recurrent(input_size = args.input_size, hidden_size = args.hidden_size, num_classes = args.num_classes, 
                                    num_outcomes = args.num_outcomes, num_layers = args.num_layers,  
                                    dropout = args.dropout, output_dropout=args.output_dropout, 
