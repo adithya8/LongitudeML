@@ -223,7 +223,7 @@ def concatenate_features(feature_dataset1, feature_dataset2):
     return get_dataset(concatenated_features)
 
 
-def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=None):
+def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=[]):
     """
         Merges the features from two dictionaries. In this case, the feature vectors are merged into one feature dictionary, while keeping the features and their masks separated.\n
         Two sets of Features which come from either of get_long_features() or concatenate_features() can be merged using this function.\n
@@ -233,16 +233,19 @@ def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=No
     """
     
     assert len(feature_datasets) >= 2, "At least two feature datasets are required for merging."
-    assert feature_suffixes is None or len(feature_suffixes) == len(feature_datasets), "Feature suffixes should be equal to the number of feature datasets."
+    assert feature_suffixes is [] or len(feature_suffixes) == len(feature_datasets), "Feature suffixes should be equal to the number of feature datasets."
     # assert that non None feature_suffixes are unique
-    if feature_suffixes is not None:
+    if feature_suffixes is not []:
         feature_suffixes_noNone = [suffix for suffix in feature_suffixes if suffix is not None]
         assert len(set(feature_suffixes_noNone)) == len(feature_suffixes_noNone), "Feature suffixes should be unique."
         
     def get_embs_name_suffix(feature_suffixes):
+        """
+            Returns the feature names and suffixes for the embeddings based on the feature_suffixes.
+        """
         feature_names = [[key for key in feature_dataset.features.keys() if key.startswith('embeddings')] for feature_dataset in feature_datasets]  
         all_feature_suffixes = set()
-        if feature_suffixes is None: 
+        if feature_suffixes is []: 
             feature_suffixes = []
             for idx, embs_name in enumerate(feature_names):
                 temp_suffix = []
@@ -273,6 +276,9 @@ def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=No
         return feature_names, feature_suffixes        
     
     feature_names, feature_suffixes = get_embs_name_suffix(feature_suffixes)
+    print (f"Feature Names: {feature_names}")
+    print (f"Feature Suffixes: {feature_suffixes}")
+    
     merged_features = {"seq_id": [], "time_ids": []}
     for suffixes in feature_suffixes:
         for suffix in suffixes:
@@ -282,6 +288,7 @@ def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=No
     mutual_seq_ids = set(feature_datasets[0]['seq_id'])
     for feature_dataset in feature_datasets[1:]:
         mutual_seq_ids = mutual_seq_ids & set(feature_dataset['seq_id'])
+    print (f"Total Number of Mutual Seq IDs: {len(mutual_seq_ids)}")
 
     def merge_feats(feature_instances):
         merged_instance = {"seq_id": feature_instances[0]['seq_id'], "time_ids": []}
@@ -292,18 +299,19 @@ def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=No
         
         feature_time_ids = [set(feature_instance['time_ids']) for feature_instance in feature_instances]
         union_time_ids = sorted(feature_time_ids[0].union(*feature_time_ids[1:]))
-        infill_emb_feats = dict([(emb_name, np_zeros_like(feature_instances[idx][emb_name][0]).tolist()) for idx, embs_names in enumerate(feature_names) for jdx, emb_name in enumerate(embs_names)])
+        infill_emb_feats = [[np_zeros_like(feature_instances[idx][emb_name][0]).tolist() for emb_name in embs_names] for idx, embs_names in enumerate(feature_names)]
+        # infill_emb_feats = dict([(emb_name, np_zeros_like(feature_instances[idx][emb_name][0]).tolist()) for idx, embs_names in enumerate(feature_names) for jdx, emb_name in enumerate(embs_names)])
         for time_id in union_time_ids:
             for idx, feature_instance in enumerate(feature_instances):
-                if time_id in feature_instance['time_ids']:
+                if time_id in feature_time_ids[idx]:#feature_instance['time_ids']:
                     feature_time_idx = feature_instance['time_ids'].index(time_id)
-                    for suffix, feature_name in zip(feature_suffixes[idx], feature_names[idx]):
+                    for jdx, (suffix, feature_name) in enumerate(zip(feature_suffixes[idx], feature_names[idx])):
                         merged_instance["{}{}".format(feature_name, suffix)].append(feature_instance[feature_name][feature_time_idx])
                         merged_instance["mask{}".format(suffix)].append(feature_instance['mask'][feature_time_idx])
-                        infill_emb_feats[feature_name] = feature_instance[feature_name][feature_time_idx]
+                        infill_emb_feats[idx][jdx] = feature_instance[feature_name][feature_time_idx]
                 else:
-                    for suffix, feature_name in zip(feature_suffixes[idx], feature_names[idx]):
-                        merged_instance["{}{}".format(feature_name, suffix)].append(infill_emb_feats[feature_name])
+                    for jdx, (suffix, feature_name) in enumerate(zip(feature_suffixes[idx], feature_names[idx])):
+                        merged_instance["{}{}".format(feature_name, suffix)].append(infill_emb_feats[idx][jdx])
                         merged_instance["mask{}".format(suffix)].append(1)
             merged_instance["time_ids"].append(time_id)
         return merged_instance
