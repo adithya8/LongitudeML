@@ -55,10 +55,9 @@ def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Datase
         datasetDict['test'] = datasetDict['train'].filter(lambda example: example[fold_col] in test_folds)
         datasetDict['train'] = datasetDict['train'].filter(lambda example: example[fold_col] not in test_folds)
 
-    # TODO: Add ooss_mask indicating whether a sequence is out of sample or not
+    # Note: ooss_mask indicates whether a sequence is out of sample or not
     # Hence all the train sequences will have oots_mask as 0
     # All the val and test sequences will have oots_mask as 1
-    # Introduce this as a new column in the dataset 
 
     datasetDict['train'] = datasetDict['train'].remove_columns(fold_col)
     datasetDict['train'] = datasetDict['train'].add_column('ooss_mask', [0]*len(datasetDict['train']['seq_id']))
@@ -66,14 +65,11 @@ def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Datase
     if 'val' in datasetDict: 
         datasetDict['val'] = datasetDict['val'].remove_columns(fold_col)
         datasetDict['val'] = datasetDict['val'].add_column('ooss_mask', [1]*len(datasetDict['val']['seq_id']))
-        # TODO Scott: Verify if this works. 
-        datasetDict['val'] = concatenate_datasets([datasetDict['val'], datasetDict['train']])
+        datasetDict['val'] = concatenate_datasets([datasetDict['train'], datasetDict['val']])
         
     if 'test' in datasetDict:
         datasetDict['test'] = datasetDict['test'].remove_columns(fold_col)
         datasetDict['test'] = datasetDict['test'].add_column('ooss_mask', [1]*len(datasetDict['test']['seq_id']))
-
-    # END TODO
     
     def create_defaut_time_ids(instance):
         """

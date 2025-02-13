@@ -14,12 +14,12 @@ def get_data_args(parser: argparse.ArgumentParser):
 def get_model_args(parser: argparse.ArgumentParser):
     # model_args: arguments related to model
     parser.add_argument('--model_type', type=str, default='gru',
-                        help='model type (default: gru)', choices=['gru', 'trns', 'custom'])
+                        help='model type (default: gru)', choices=['gru', 'trns', 'custom', 'baseline'])
     parser.add_argument('--custom_model', type=str, default=None)
     parser.add_argument('--input_size', type=int, default=768, #required=True, 
                         help='size of the embeddings')
     parser.add_argument('--num_classes', type=int, default=1, #required=True,
-                        help='number of classes (default: 2)')
+                        help='number of classes (default: 1)')
     parser.add_argument('--num_outcomes', type=int, default=1, #required=True,
                         help='Number of outcomes (default: 1)')
     parser.add_argument('--hidden_size', type=int, default=128, #required=True,

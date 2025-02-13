@@ -23,7 +23,7 @@ class MILightningModule(pl.LightningModule):
         elif args.num_classes==2:
             self.loss = nn.BCEWithLogitsLoss()
         elif args.num_classes==1:
-            self.loss = mi_smape #nn.MSELoss()
+            self.loss = mi_mse
             # self.metrics_fns = {'mse': mi_mse}
             self.metrics_fns = {'smape': mi_smape, 'pearsonr': mi_pearsonr, 'mse': mi_mse}
         else:

@@ -100,9 +100,10 @@ class PositionalEncoding(nn.Module):
         if x.shape[1] <= self.max_len:
             x = x + self.positional_embedding(torch.arange(x.shape[1], device=x.device))
         else:
-            remainder = x.shape[1] - self.max_len
+            remainder = x.shape[1] - self.max_len  
             start_position = self.max_len - remainder
-            while start_position%7 == self.max_len%7: start_position -= 1
+            # TODO: This needs to be fixed. Not the entire batch will have the same max_len.
+            while start_position%7 != self.max_len%7: start_position -= 1
             pos_embs_maxlen = self.positional_embedding(torch.arange(self.max_len, device=x.device))
             pos_embs_remainder = self.positional_embedding(torch.arange(start_position, start_position+remainder, device=x.device))
             x  = x + torch.cat([pos_embs_maxlen, pos_embs_remainder], dim=0)
