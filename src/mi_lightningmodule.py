@@ -37,7 +37,7 @@ class MILightningModule(pl.LightningModule):
         process_metric_dict = dict([(i, []) for i in self.metrics_fns])
         self.epoch_metrics = dict(train=deepcopy(process_metric_dict), val=deepcopy(process_metric_dict), test=deepcopy(process_metric_dict))
         # Store predictions and targets. Keys: preds, target since pytorch metrics use these arguments
-        labels_dict = dict(preds=[], outcomes=[], outcomes_mask=[], infill_lang_mask=[])
+        labels_dict = dict(preds=[], outcomes=[], outcomes_mask=[], infill_lang_mask=[], seq_id=[], time_ids=[], oots_mask=[], ooss_mask=[])
         self.labels = dict(train=deepcopy(labels_dict), val=deepcopy(labels_dict), test=deepcopy(labels_dict))
 
 
@@ -74,7 +74,9 @@ class MILightningModule(pl.LightningModule):
         log_metrics_dict = {'train_loss': batch_loss}
         log_metrics_dict.update({'train_{}'.format(key): val for key, val in step_metrics.items()})
         self.log_dict(log_metrics_dict, on_step=False, on_epoch=True)
-        step_output = {'loss': batch_loss, 'pred': batch_output, 'outcomes': batch_labels, 'outcomes_mask': batch['outcomes_mask'], 
+        step_output = {'loss': batch_loss, 'pred': batch_output, 'outcomes': batch_labels, 
+                       'outcomes_mask': batch['outcomes_mask'], 'seq_id': seq_id, 'time_ids': batch['time_ids'],
+                        'oots_mask': batch['oots_mask'], 'ooss_mask': batch['ooss_mask'],
                     #    'infill_lang_mask': batch['mask'], 
                        'step': torch.tensor([self.global_step])}
         if seq_id is not None: step_output.update({'seq_id': seq_id})
@@ -147,7 +149,9 @@ class MILightningModule(pl.LightningModule):
         step_output = {'ws_oots_loss': ws_oots_batch_loss, 'ooss_loss': ooss_batch_loss,
                           'wt_ooss_loss': wt_ooss_batch_loss, 'oots_ooss_loss': oots_ooss_batch_loss,
                             'oots_loss': oots_batch_loss, 'pred': batch_output, 'outcomes': batch_labels,
-                            'outcomes_mask': batch['outcomes_mask'], 'step': torch.tensor([self.global_step])}
+                            'outcomes_mask': batch['outcomes_mask'], 'step': torch.tensor([self.global_step]),
+                            'seq_id': seq_id, 'ooss_mask': batch['ooss_mask'], 'oots_mask': batch['oots_mask'],
+                            'time_ids': batch['time_ids']}
         if seq_id is not None: step_output.update({'seq_id': seq_id})
         self.step_outputs['val'].append(step_output)
 
@@ -215,14 +219,17 @@ class MILightningModule(pl.LightningModule):
             self.epoch_loss[process].append({'ws_oots_loss': avg_ws_oots_loss, 'ooss_loss': avg_ooss_loss,
                                             'wt_ooss_loss': avg_wt_ooss_loss, 'oots_ooss_loss': avg_oots_ooss_loss,
                                             'oots_loss': avg_oots_loss})
-        if 'pred' in cat_outputs:
-            self.labels[process]['preds'].append(cat_outputs['pred'])
-        if 'outcomes' in cat_outputs:
-            self.labels[process]['outcomes'].append(cat_outputs['outcomes'])
-        if 'outcomes_mask' in cat_outputs:
-            self.labels[process]['outcomes_mask'].append(cat_outputs['outcomes_mask'])
-        if 'infill_lang_mask' in cat_outputs:
-            self.labels[process]['infill_lang_mask'].append(cat_outputs['infill_lang_mask'])
+        
+        if 'pred' in cat_outputs: self.labels[process]['preds'].append(cat_outputs['pred'])
+        if 'outcomes' in cat_outputs: self.labels[process]['outcomes'].append(cat_outputs['outcomes'])
+        if 'outcomes_mask' in cat_outputs: self.labels[process]['outcomes_mask'].append(cat_outputs['outcomes_mask'])
+        if 'infill_lang_mask' in cat_outputs: self.labels[process]['infill_lang_mask'].append(cat_outputs['infill_lang_mask'])
+        if 'seq_id' in cat_outputs: self.labels[process]['seq_id'].append(cat_outputs['seq_id'])
+        if 'time_ids' in cat_outputs: self.labels[process]['time_ids'].append(cat_outputs['time_ids'])
+        if 'orig_time_ids' in cat_outputs: self.labels[process]['orig_time_ids'].append(cat_outputs['orig_time_ids'])
+        if 'oots_mask' in cat_outputs: self.labels[process]['oots_mask'].append(cat_outputs['oots_mask'])
+        if 'ooss_mask' in cat_outputs: self.labels[process]['ooss_mask'].append(cat_outputs['ooss_mask'])
+        
         # TODO: add ooss_mask and oots_mask to the labels 
         if self.metrics_fns:
             max_timesteps = max([i.shape[1] for i in cat_outputs['pred']])
