@@ -50,10 +50,10 @@ if __name__ == '__main__':
     print (f'Val dataset size: {len(dataloaderModule.val_dataloader())}')
 
     if args.model_type == 'baseline':
-        if args.custom_model == 'linear':
+        if args.custom_model in ['linear', 'linear_subscales', 'linear_subscales_z']:
             model = BSLN_ARCHS[args.custom_model](input_size=args.input_size, output_size=args.num_outcomes)
-        elif args.custom_model == 'linear_ln':
-            model = BSLN_ARCHS[args.custom_model](input_size=args.input_size, output_size=args.num_outcomes, elementwise_affine=True)
+        elif args.custom_model == 'linear_ln' or args.custom_model == 'linear_subscales_bn':
+            model = BSLN_ARCHS[args.custom_model](input_size=args.input_size, output_size=args.num_outcomes, affine=True)
         else:
             raise ValueError('Invalid custom model: {}'.format(args.custom_model))
     elif args.model_type == 'gru':
@@ -69,10 +69,10 @@ if __name__ == '__main__':
                                 dropout=args.dropout, output_dropout=args.output_dropout,
                                 bidirectional=args.bidirectional, num_heads=args.num_heads, max_len=args.max_len
                                 )
-            subscales_model = AutoRegressiveTransformer(input_size=4, hidden_size=4, num_classes=args.num_classes,
+            subscales_model = AutoRegressiveTransformer(input_size=5, hidden_size=5, num_classes=args.num_classes,
                                 num_outcomes=args.num_outcomes, num_layers=args.num_layers,
-                                dropout=args.dropout, output_dropout=args.output_dropout,
-                                bidirectional=args.bidirectional, num_heads=args.num_heads, max_len=args.max_len
+                                dropout=0.01, output_dropout=0.1,
+                                bidirectional=args.bidirectional, num_heads=1, max_len=args.max_len
                                 )
             model = TRNS_ARCHS[args.custom_model](lang_model, subscales_model)
         elif args.custom_model in ['dailylangformer', 'pclsubscaleformer', 'totalpclformer', 'lextransformer', 'wtcpclsubscaleformer']:

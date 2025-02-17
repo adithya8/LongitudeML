@@ -70,12 +70,12 @@ class LangSubscaleDualContextFormer(nn.Module):
         self.subscales_transformer = subscales_transformer
         self.relu = nn.ReLU()
     
-    def forward(self, embeddings_lang, mask_lang, embeddings_subscales, mask_subscales, **kwargs):
+    def forward(self, embeddings_lang, mask_lang, embeddings_subscales_z, mask_subscales, **kwargs):
         lang_out = self.lang_transformer(embeddings_lang, mask_lang, **kwargs)
-        subscales_out = self.subscales_transformer(embeddings_subscales, mask_subscales, **kwargs)
-        lang_out = self.relu(lang_out)
-        subscales_out = self.relu(subscales_out)
-        output = (lang_out + subscales_out)/2.0
+        subscales_out = self.subscales_transformer(embeddings_subscales_z, mask_subscales, **kwargs)
+        # lang_out = self.relu(lang_out)
+        # subscales_out = self.relu(subscales_out)
+        output = self.relu(lang_out + subscales_out)/2.0
         # output = (lang_out + subscales_out)/2.0
         return output
 
@@ -116,5 +116,5 @@ TRNS_ARCHS = {
     "dailylangformer": DailyLangFormer,
     "langsubscaledualcontextformer": LangSubscaleDualContextFormer,
     "lextransformer": LexTransformer,
-    "projectedsubscaleformer":projectedSubscaleTransformer
+    "projectedsubscaleformer":projectedSubscaleTransformer,
 }
