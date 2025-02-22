@@ -62,7 +62,7 @@ def mi_mse(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:t
     elif reduction == "none" or reduction is None:
         loss = torch.square(input - target)*mask
     
-    return loss
+    return loss/torch.sum(mask)
 
 
 def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:torch.Tensor=None):
@@ -84,7 +84,7 @@ def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask
     elif reduction == "none" or reduction is None:
         loss = 2*torch.abs(input - target)/(torch.abs(input) + torch.abs(target))*mask
         
-    return loss
+    return loss/torch.sum(mask)
 
 
 def mi_pearsonr(input:torch.Tensor, target:torch.Tensor, mask:torch.Tensor=None):
@@ -125,4 +125,4 @@ def mi_mae(input:torch.Tensor, target:torch.Tensor, reduction:str="mean", mask:t
     elif reduction == "none" or reduction is None:
         loss = torch.abs(input - target)*mask
     
-    return loss
+    return loss/torch.sum(mask)
