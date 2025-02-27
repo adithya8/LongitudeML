@@ -64,7 +64,7 @@ def mi_mse(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
     elif reduction == "none" or reduction is None:
         loss = torch.square(input - target)*mask
     
-    return loss
+    return loss/torch.sum(mask)
 
 
 def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", mask:torch.Tensor=None):
@@ -88,7 +88,7 @@ def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq"
     elif reduction == "none" or reduction is None:
         loss = 2*torch.abs(input - target)/(torch.abs(input) + torch.abs(target))*mask
         
-    return loss
+    return loss/torch.sum(mask)
 
 
 def pearson_corrcoef(input, target, mask=None, dim:int=1):
@@ -150,4 +150,4 @@ def mi_mae(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
     elif reduction == "none" or reduction is None:
         loss = torch.abs(input - target)*mask
     
-    return loss
+    return loss/torch.sum(mask)
