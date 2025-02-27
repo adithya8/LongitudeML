@@ -127,8 +127,18 @@ def merge_features_outcomes(long_outcomes:Dataset, long_features:Dataset, reset_
                 merged_instance["outcomes_mask"].append(outcomes_instance["outcomes_mask"][outcomes_time_idx])        
         merged_instance["time_ids"] = list(range(min(union_time_ids), max(union_time_ids)+1))
         if reset_time2zero:
-            merged_instance["orig_time_ids"] = merged_instance["time_ids"]
-            merged_instance["time_ids"] = list(range(0, len(merged_instance["time_ids"])))
+            # Find index where the mask_{} is first 0 and reset that time_id to 0. 
+            # The index where the feature mask is 0 is considered the min time_id.
+            min_feature_time_idx = min([merged_instance[mask_name].index(0) for mask_name in masks_names])
+            if min_feature_time_idx > 0: print ("Min time_id for sequence {} is {}".format(merged_instance["seq_id"], min_feature_time_idx))
+            merged_instance["orig_time_ids"] = merged_instance["time_ids"][min_feature_time_idx:]
+            merged_instance["time_ids"] = list(range(0, len(merged_instance["orig_time_ids"])))
+            for emb_name, mask_name in zip(embs_names, masks_names):
+                merged_instance[emb_name] = merged_instance[emb_name][min_feature_time_idx:]
+                merged_instance[mask_name] = merged_instance[mask_name][min_feature_time_idx:]
+            merged_instance["outcomes"] = merged_instance["outcomes"][min_feature_time_idx:]
+            merged_instance["outcomes_mask"] = merged_instance["outcomes_mask"][min_feature_time_idx:]
+                
         return merged_instance
     
     mutual_seq_ids = set(long_features['seq_id']) & set(long_outcomes['seq_id'])
@@ -551,7 +561,7 @@ if __name__ == '__main__':
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_hypLexNormalized_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max60days_v4_40combined_5fold_oots')
     print (merged_dataset_fulllength)
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max90days_v6_60combined_5fold_oots')
-    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero_max90days_v6_60combined_5fold_oots')
+    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots')
 
     ###############################
     #  Now we create a dev set out of this, by cutting off one fold as the held out sequence and cutting off time points after 60 days as held out time 
@@ -575,6 +585,7 @@ if __name__ == '__main__':
     merged_dataset_devset = merged_dataset_devset.map(lambda x: normalize_subscales(x, avg_avg_subscales, avg_std_subscales))
     
     print (merged_dataset_devset)
-    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero_max60days_v6_40combined_devset_oots')
-
+    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots')
+    import pdb; pdb.set_trace()
+    
     ###############################    
