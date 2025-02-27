@@ -16,7 +16,8 @@ import torch.nn as nn
 from src import (
     get_default_args, get_logger,
     get_datasetDict, create_mask, MIDataLoaderModule,
-    MILightningModule, recurrent, AutoRegressiveTransformer, PositionalEncoding
+    MILightningModule, recurrent, AutoRegressiveTransformer, PositionalEncoding,
+    AutoRegressiveLinear
 )
 
 from CustomTransformers import TRNS_ARCHS      
@@ -54,6 +55,23 @@ if __name__ == '__main__':
             model = BSLN_ARCHS[args.custom_model](input_size=args.input_size, output_size=args.num_outcomes)
         elif args.custom_model == 'linear_ln' or args.custom_model == 'linear_subscales_bn':
             model = BSLN_ARCHS[args.custom_model](input_size=args.input_size, output_size=args.num_outcomes, affine=True)
+        elif args.custom_model == 'linear_subscales_lang':
+            subscalesLinear = BSLN_ARCHS['linear_subscales'](input_size=5, output_size=args.num_outcomes)
+            langLinear = BSLN_ARCHS['linear'](input_size=args.input_size, output_size=args.num_outcomes)
+            model = BSLN_ARCHS[args.custom_model](subscalesLinear, langLinear)
+        elif args.custom_model in ['ar_subscale', 'ar_subscale_z', 'ar_subscale_shifted']:
+            subscaleAR = AutoRegressiveLinear(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
+                                         num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
+                                         max_len=args.max_len)
+            model = BSLN_ARCHS[args.custom_model](subscaleAR)
+        elif args.custom_model == 'ar_subscale_lang':
+            subscaleAR = AutoRegressiveLinear(input_size=5, hidden_size=args.hidden_size, num_classes=args.num_classes,
+                                            num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
+                                            max_len=args.max_len)
+            langAR = AutoRegressiveLinear(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
+                                            num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
+                                            max_len=args.max_len)
+            model = BSLN_ARCHS[args.custom_model](subscaleAR, langAR)
         else:
             raise ValueError('Invalid custom model: {}'.format(args.custom_model))
     elif args.model_type == 'gru':
@@ -88,13 +106,12 @@ if __name__ == '__main__':
     # callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
                                         # mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)] if args.early_stopping_patience>0 else []
     # callbacks.append(pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1, save_last=False))
-
     trainer = pl.Trainer(accelerator='gpu', devices=1, default_root_dir=args.output_dir, logger=logger,
                         # callbacks=callbacks, 
                         min_epochs=args.min_epochs, max_epochs=args.epochs)
-        
-    lightning_module = MILightningModule(args, model) 
+    lightning_module = MILightningModule(args=args, model=model) 
     
+    print ("*** Training ***")
     trainer.fit(lightning_module, train_dataloaders=dataloaderModule.train_dataloader(), val_dataloaders=dataloaderModule.val_dataloader())
 
     # Save predictions to output_dir    
