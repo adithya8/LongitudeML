@@ -6,6 +6,7 @@
 ####### IMPORTS #################
 import torch
 import torch.nn as nn
+import math
 #################################
 
 #################################
@@ -199,4 +200,61 @@ class AutoRegressiveTransformer(nn.Module):
         
         # if torch.isnan(output).any(): import pdb; pdb.set_trace()
         return output
+    
+class AutoRegressiveLinear(nn.Module):
+    def __init__(self, input_size:int, hidden_size:int, num_classes:int, num_outcomes:int=1, num_layers:int=1, 
+                output_dropout:float=0.0, max_len:int=1):
+        super(AutoRegressiveLinear, self).__init__()
+        
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.output_dropout = output_dropout
+        self.num_classes = num_classes
+        self.num_outcomes = num_outcomes
+        self.max_len = max_len
+        self.padding_len = self.max_len - 1 #Padding length for causal convolution to make the output of the same length as the input
+        self.init_model()
+        print (self)
+        
+    def init_model(self):
+        self.model = []
+        self.output_dropout_layer = nn.Dropout(self.output_dropout)        
+        # for _ in range(self.num_layers-1):
+        #     self.model.append(nn.Conv1d(in_channels=self.input_size, out_channels=self.hidden_size, kernel_size=self.max_len, bias=True))
+        
+        if self.num_classes<=2: # For binary classification or regression, we need only one output node
+            self.model.append(nn.Conv1d(in_channels=self.input_size, out_channels=1*self.num_outcomes, kernel_size=self.max_len, bias=True))
+        else:
+            self.model.append(nn.Conv1d(in_channels=self.input_size, out_channels=self.num_classes*self.num_outcomes, kernel_size=self.max_len, bias=True))
+
+        # Initial weights to 0
+        self.model[0].weight.data.fill_(0)
+        self.model[0].bias.data.fill_(0)
+        self.model = nn.ModuleList(self.model)
+        
+    def forward(self, embeddings, mask, predict_last_valid_hidden_state=True, **kwargs):
+        """
+            embeddings: (batch_size, seq_len, input_size)
+            mask: (batch_size, seq_len) of type bool. if mask = 1, then the query is was padded and should not be used for attention. If mask = 0, then the query is valid and should be used for attention.
+            predict_last_valid_hidden_state: If True, then the last valid timestep's hidden state from each instance is used for prediction. Else, all timesteps' hidden states are predicted.
+        """
+        # x shape: (batch_size, seq_len, features)
+        # Assuming features==1 here. If more, you'll need to adjust in_channels.
+        # Permute to (batch_size, features, seq_len) for Conv1D.
+        embeddings = embeddings.permute(0, 2, 1)
+        if self.padding_len > 0:
+            # Pad on the left for causal convolution with a tensor of input dimensions: (batch_size, features, padding_len)
+            embeddings = nn.functional.pad(embeddings, (self.padding_len, 0))
+        # Apply convolution. The output shape will depend on your padding/stride.
+        model_out = self.model[0](embeddings)
+        # Permute back to (batch_size, seq_len', 1)
+        model_out_perm = model_out.permute(0, 2, 1)
+        # Apply dropout
+        model_out_perm_do = self.output_dropout_layer(model_out_perm)
+        # import pdb; pdb.set_trace()
+        
+        # TODO: Include logic for predict_last_valid_hidden_state
+        return model_out_perm_do
+    
 #################################
