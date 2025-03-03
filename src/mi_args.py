@@ -60,8 +60,8 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help="Batch size for evaluation.")
     parser.add_argument('--cross_entropy_class_weight', default=None, nargs='+', type=float,
                         help='class weight for cross entropy loss (default: None)')
-    parser.add_argument('--loss_reduction', type=str, default='within-seq', choices=['within-seq', 'flatten', 'none'],
-                        help='Loss reduction strategy (default: within-seq)')
+    parser.add_argument('--loss_reduction', type=str, default='flatten', choices=['within-seq', 'flatten', 'none'],
+                        help='Loss reduction strategy (default: flatten)')
     parser.add_argument('--log_interval', type=int, default=10,
                         help='logging interval (default: 10)')
     parser.add_argument('--save_strategy', type=str, default='best',
