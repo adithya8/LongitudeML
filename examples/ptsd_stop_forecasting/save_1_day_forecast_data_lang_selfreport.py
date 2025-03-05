@@ -508,13 +508,16 @@ if __name__ == '__main__':
     
     np.random.seed(42)
     def stratify_sequences(batch):
-        batch["folds"] = np.random.permutation(len(batch["seq_id"])) #np.random.randint(0, num_folds, len(batch["seq_id"]))
+        # Implement round robin stratification
+        num_folds = len(batch['seq_id'])
+        adjustment_factor = min(batch['idx'])//num_folds
+        batch['folds'] = [(i - adjustment_factor)%num_folds for i in batch['idx']]
         return batch
     
     merged_dataset_fulllength = merged_dataset_fulllength.map(compute_mean_std)
     merged_dataset_fulllength = merged_dataset_fulllength.sort('std_outcome').sort('avg_outcome')
-    merged_dataset_fulllength = merged_dataset_fulllength.map(stratify_sequences, batched=True, batch_size=num_folds, remove_columns=['avg_outcome', 'std_outcome'])
-    
+    merged_dataset_fulllength = merged_dataset_fulllength.add_column('idx', list(range(len(merged_dataset_fulllength))))
+    merged_dataset_fulllength = merged_dataset_fulllength.map(stratify_sequences, batched=True, batch_size=num_folds, remove_columns=['avg_outcome', 'std_outcome', 'idx'])
     # Create a function that would add another key:value pair to this dataset object maintaining a list for each sequence indicating whether a time_id belongs to train or eval. 
     # The function definition: def create_train_eval_time_mask(instance, train_time_ids: List[int], eval_time_ids: List[int]=None) -> dict:
     # Key = "oots_mask"; This value will be 0 for train time_ids and 1 for eval time_ids.
@@ -549,10 +552,27 @@ if __name__ == '__main__':
             temp.append(ss_z)
         instance['embeddings_subscales_z'] = temp
         return instance
-
-    merged_dataset_trainset = merged_dataset_fulllength.filter(lambda x: x['folds'] != 4).map(compute_mean_std_subscales)
-    avg_avg_subscales, avg_std_subscales = np.mean(merged_dataset_trainset['avg_subscales'], axis=0), np.mean(merged_dataset_trainset['std_subscales'], axis=0)
-    merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: normalize_subscales(x, avg_avg_subscales, avg_std_subscales))
+    
+    subscales_mean = np.zeros(5)
+    subscales_std = np.zeros(5)
+    num_obs = 0
+    def compute_flatten_mean_std_subscales(instance):
+        """Compute mean and std using streaming algorithm."""
+        global subscales_mean, subscales_std, num_obs
+        for idx, (subscales, subscales_mask, oots_mask) in enumerate(zip(instance['embeddings_subscales'], instance['mask_subscales'], instance['oots_mask'])):
+            if subscales_mask==0 and oots_mask==0:
+                num_obs += 1
+                subscales_mean += np.array(subscales) 
+                subscales_std += np.array(subscales)**2
+        
+    merged_dataset_fulllength.filter(lambda x: x['folds'] != 4).map(compute_flatten_mean_std_subscales)
+    subscales_mean /= num_obs
+    subscales_std = np.sqrt(subscales_std/num_obs - subscales_mean**2)
+    merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: normalize_subscales(x, subscales_mean, subscales_std))
+    # Hierarchical average
+    # merged_dataset_trainset = merged_dataset_fulllength.filter(lambda x: x['folds'] != 4).map(compute_mean_std_subscales)
+    # avg_avg_subscales, avg_std_subscales = np.mean(merged_dataset_trainset['avg_subscales'], axis=0), np.mean(merged_dataset_trainset['std_subscales'], axis=0)
+    # merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: normalize_subscales(x, avg_avg_subscales, avg_std_subscales))
 
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/todayPCL_selfreport_PCL_1_days_ahead_max90days_v3_40combined_5fold')
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_base_L11_rpca64_combined_PCL_1_days_ahead_max90days_v4_40combined_5fold')
@@ -561,7 +581,8 @@ if __name__ == '__main__':
     # merged_dataset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_noNULLs_roberta_base_L11_rpca64_hypLexNormalized_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max60days_v4_40combined_5fold_oots')
     print (merged_dataset_fulllength)
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max90days_v6_60combined_5fold_oots')
-    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots')
+    # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots')
+    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots')
 
     ###############################
     #  Now we create a dev set out of this, by cutting off one fold as the held out sequence and cutting off time points after 60 days as held out time 
@@ -580,12 +601,20 @@ if __name__ == '__main__':
     merged_dataset_devset = merged_dataset_devset.filter(outcomes_filter_sequences_dev)
     # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max60days_v6_40combined_devset_oots')
     
-    merged_dataset_devset_train = merged_dataset_devset.map(compute_mean_std_subscales)
-    avg_avg_subscales, avg_std_subscales = np.mean(merged_dataset_devset_train['avg_subscales'], axis=0), np.mean(merged_dataset_devset_train['std_subscales'], axis=0)
-    merged_dataset_devset = merged_dataset_devset.map(lambda x: normalize_subscales(x, avg_avg_subscales, avg_std_subscales))
+    subscales_mean = np.zeros(5)
+    subscales_std = np.zeros(5)
+    num_obs = 0
+    merged_dataset_devset.filter(lambda x: x['folds'] != 0).map(compute_flatten_mean_std_subscales)
+    subscales_mean /= num_obs
+    subscales_std = np.sqrt(subscales_std/num_obs - subscales_mean**2)
+    merged_dataset_devset = merged_dataset_devset.map(lambda x: normalize_subscales(x, subscales_mean, subscales_std))
+    
+    ## Hierarchical average and std for normalization    
+    # merged_dataset_devset_train = merged_dataset_devset.map(compute_mean_std_subscales)
+    # avg_avg_subscales, avg_std_subscales = np.mean(merged_dataset_devset_train['avg_subscales'], axis=0), np.mean(merged_dataset_devset_train['std_subscales'], axis=0)
+    # merged_dataset_devset = merged_dataset_devset.map(lambda x: normalize_subscales(x, avg_avg_subscales, avg_std_subscales))
     
     print (merged_dataset_devset)
-    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots')
-    import pdb; pdb.set_trace()
-    
+    # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots')
+    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots')    
     ###############################    
