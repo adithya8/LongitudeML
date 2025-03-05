@@ -64,7 +64,7 @@ if __name__ == '__main__':
                                          num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                          max_len=args.max_len)
             model = BSLN_ARCHS[args.custom_model](subscaleAR)
-        elif args.custom_model == 'ar_subscale_lang':
+        elif args.custom_model in ['ar_subscale_lang', 'ar_subscale_z_lang']:
             subscaleAR = AutoRegressiveLinear(input_size=5, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                             num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                             max_len=args.max_len)

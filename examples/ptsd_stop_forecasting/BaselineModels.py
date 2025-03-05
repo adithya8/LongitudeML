@@ -56,7 +56,7 @@ class LinearRegressionSubscalesLang(nn.Module):
         self.lang_linear = lang_linear
     
     def forward(self, embeddings_subscales, mask_subscales, embeddings_lang, mask_lang, **kwargs):
-        output = self.subscales_linear(embeddings_subscales, mask_subscales) + self.lang_linear(embeddings_lang, mask_lang)
+        output = self.subscales_linear(embeddings_subscales, mask_subscales, **kwargs) + self.lang_linear(embeddings_lang, mask_lang, **kwargs)
         output /= 2.0
         return output
 
@@ -133,7 +133,19 @@ class ARSubscaleLang(nn.Module):
         
     def forward(self, embeddings_subscales, mask_subscales, embeddings_lang, mask_lang, **kwargs):
         output = self.subscaleAR_model(embeddings_subscales, mask_subscales, **kwargs) + self.langAR_model(embeddings_lang, mask_lang, **kwargs)
-        output /= 2.0
+        # output /= 2.0
+        return output
+    
+class ARSubscaleZLang(nn.Module):
+    """Auto Regressive Subscale with Language concatenated"""
+    def __init__(self, subscaleAR:AutoRegressiveLinear, LangAR:AutoRegressiveLinear):
+        super(ARSubscaleZLang, self).__init__()
+        self.subscaleAR_model = subscaleAR
+        self.langAR_model = LangAR
+        
+    def forward(self, embeddings_subscales_z, mask_subscales, embeddings_lang, mask_lang, **kwargs):
+        output = self.subscaleAR_model(embeddings_subscales_z, mask_subscales, **kwargs) + self.langAR_model(embeddings_lang, mask_lang, **kwargs)
+        # output /= 2.0
         return output
     
 ##############################################
@@ -148,5 +160,6 @@ BSLN_ARCHS = {
     'ar_subscale': ARSubscale,
     'ar_subscale_z': ARSubscaleZ,
     'ar_subscale_shifted': ARSubscaleShifted,
-    'ar_subscale_lang': ARSubscaleLang
+    'ar_subscale_lang': ARSubscaleLang,
+    'ar_subscale_z_lang': ARSubscaleZLang,
 }
