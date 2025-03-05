@@ -1,7 +1,7 @@
 from typing import Any, List, Union
 import torch
 # import torchmetrics.functional.regression as tm_reg
-import torchmetrics.functional.classification as tm_cls  
+# import torchmetrics.functional.classification as tm_cls  
 
 
 #TODO: Calculate metrics for each timestep range separately (based on how many left to completion)
@@ -53,9 +53,9 @@ def mi_mse(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
     if mask is None:
         mask = torch.ones(input.shape, device=input.device) 
     
-    # TODO Separate the reduction for each outcome. 
     if reduction == "within-seq":
-        loss = torch.sum(torch.square(input - target)*mask, axis=1)/torch.sum(mask, axis=1)
+        loss = torch.square(input - target)*mask
+        loss = torch.sum(loss, axis=1)/torch.sum(mask, axis=1)
         loss = torch.mean(loss, axis=0).mean()
     elif reduction == "flatten":
         loss = torch.square(input - target)*mask
@@ -64,7 +64,7 @@ def mi_mse(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
     elif reduction == "none" or reduction is None:
         loss = torch.square(input - target)*mask
     
-    return loss/torch.sum(mask)
+    return loss
 
 
 def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", mask:torch.Tensor=None):
@@ -79,16 +79,17 @@ def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq"
     epsilon = 1e-8
     
     if reduction == "within-seq":
-        loss = 2*torch.sum(torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask, axis=1)/torch.sum(mask, axis=1)
+        loss = torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask
+        loss = 2*torch.sum(loss, axis=1)/torch.sum(mask, axis=1)
         loss = torch.mean(loss, axis=0).mean()
     elif reduction == "flatten":
         loss = torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask
-        loss = 2*torch.sum(loss, axis[0, 1])/torch.sum(mask, axis=[0, 1]) # average loss over sequences and timesteps
+        loss = 2*torch.sum(loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1]) # average loss over sequences and timesteps
         loss = torch.mean(loss) # average loss over outcomes 
     elif reduction == "none" or reduction is None:
         loss = 2*torch.abs(input - target)/(torch.abs(input) + torch.abs(target))*mask
         
-    return loss/torch.sum(mask)
+    return loss
 
 
 def pearson_corrcoef(input, target, mask=None, dim:int=1):
@@ -141,8 +142,10 @@ def mi_mae(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
         mask = torch.ones(input.shape, device=input.device) 
     
     if reduction == "within-seq":
-        loss = torch.sum(torch.abs(input - target)*mask)/torch.sum(mask, axis=1)
+        loss = torch.sum(torch.abs(input - target)*mask, axis=1)/torch.sum(mask, axis=1)
         loss = torch.mean(loss, axis=0).mean()
+        # print ("MAE going through within-seq")
+        # import pdb; pdb.set_trace()
     elif reduction == "flatten":
         loss = torch.abs(input - target)*mask
         loss = torch.sum(loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
@@ -150,4 +153,4 @@ def mi_mae(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
     elif reduction == "none" or reduction is None:
         loss = torch.abs(input - target)*mask
     
-    return loss/torch.sum(mask)
+    return loss
