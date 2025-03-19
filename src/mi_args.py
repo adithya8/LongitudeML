@@ -62,6 +62,10 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='class weight for cross entropy loss (default: None)')
     parser.add_argument('--loss_reduction', type=str, default='flatten', choices=['within-seq', 'flatten', 'none'],
                         help='Loss reduction strategy (default: flatten)')
+    parser.add_argument('--do_shift', action='store_true', default=False,
+                        help='Predict the change instead of the absolute value (default: False)')
+    parser.add_argument('--interpolated_output', action='store_true', default=False,
+                        help='The output has been linearly interpolated (default: False)')
     parser.add_argument('--log_interval', type=int, default=10,
                         help='logging interval (default: 10)')
     parser.add_argument('--save_strategy', type=str, default='best',
@@ -84,6 +88,10 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help="Minimum delta value for loss monitoring to consider for early stopping (default: 0.0)")
     parser.add_argument('--early_stopping_mode', type=str, default='min', choices=['min', 'max'],
                         help="Early Stopping mode (default: min)")
+    parser.add_argument('--subscale_weights_path', type=str, default=None,
+                        help="Path to the weights of the subscale model")
+    parser.add_argument('--lang_weights_path', type=str, default=None,
+                        help="Path to the weights of the language model")
     #TODO: Add early stopping
 
 

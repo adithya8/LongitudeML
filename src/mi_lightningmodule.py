@@ -14,6 +14,7 @@ class MILightningModule(pl.LightningModule):
         # TODO: Separate model_args from trainer_args (May be)
         self.args = args
         self.model = model
+        self.processor = TimeShiftProcessor(do_shift=args.do_shift, interpolation=args.interpolated_output)
         
         self.metrics_fns = {}
         if args.num_classes>2:
@@ -65,13 +66,21 @@ class MILightningModule(pl.LightningModule):
     def training_step(self, batch, batch_idx) -> STEP_OUTPUT:
         batch, batch_labels, seq_id = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
-        # Loss only calculates for the valid timesteps 
-        batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
-        step_metrics = self.calculate_metrics(batch_output, batch_labels, batch['outcomes_mask'])
+        batch_labels_diffed = self.processor.shift_labels(batch_labels)
+        # Loss only calculates for the valid timesteps
+        
+        if isinstance(batch_output, tuple):
+            batch_loss = self.loss(input=batch_output[1], target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
+        else:
+            batch_loss = self.loss(input=batch_output, target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
+        batch_output = batch_output[0] if isinstance(batch_output, tuple) else batch_output
+        
+        batch_output_adj = self.processor.reshift_labels(batch_output, batch_labels, batch['outcomes_mask']) 
+        step_metrics = self.calculate_metrics(batch_output_adj, batch_labels, batch['outcomes_mask'])
         log_metrics_dict = {'train_loss': batch_loss}
         log_metrics_dict.update({'train_{}'.format(key): val for key, val in step_metrics.items()})
         self.log_dict(log_metrics_dict, on_step=False, on_epoch=True)
-        step_output = {'loss': batch_loss, 'pred': batch_output, 'outcomes': batch_labels, 
+        step_output = {'loss': batch_loss, 'pred': batch_output_adj, 'outcomes': batch_labels, 
                        'outcomes_mask': batch['outcomes_mask'], 'seq_id': seq_id, 'time_ids': batch['time_ids'],
                         'oots_mask': batch['oots_mask'], 'ooss_mask': batch['ooss_mask'],
                        'step': torch.tensor([self.global_step])}
@@ -84,6 +93,15 @@ class MILightningModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx) -> STEP_OUTPUT:
         batch, batch_labels, seq_id = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
+        batch_labels_diffed = self.processor.shift_labels(batch_labels)
+        
+        if isinstance(batch_output, tuple):
+            batch_loss = self.loss(input=batch_output[1], target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
+        else:
+            batch_loss = self.loss(input=batch_output, target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
+        batch_output = batch_output[0] if isinstance(batch_output, tuple) else batch_output
+        
+        batch_output_adj = self.processor.reshift_labels(batch_output, batch_labels, batch['outcomes_mask'])
         # Filter data based on five categories and compute loss/metrics for all categories:
         #                1. to the OOTS and Within Sample Sequence data
         #                2. to the OOTS and OOSS data
@@ -111,13 +129,15 @@ class MILightningModule(pl.LightningModule):
             # import pdb; pdb.set_trace()
             # Remove the rows which have a sum of batch_mask across the sequence as 0 to avoid div by 0 error
             batch_output_ = batch_output[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_output_adj_ = batch_output_adj[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_labels_diffed_ = batch_labels_diffed[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
-            ws_oots_batch_loss = self.loss(input=batch_output_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            ws_oots_pearsonr = mi_pearsonr(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            ws_oots_smape = mi_smape(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            ws_oots_mae = mi_mae(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            ws_oots_mse = mi_mse(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
+            ws_oots_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
+            ws_oots_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            ws_oots_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            ws_oots_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            ws_oots_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
             
         wt_ooss_batch_loss, wt_ooss_pearsonr, wt_ooss_smape = default_loss, default_pearsonr, default_smape
         wt_ooss_mae, wt_ooss_mse = default_mae, default_mse
@@ -125,13 +145,15 @@ class MILightningModule(pl.LightningModule):
             batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1) & (batch['oots_mask']==0).unsqueeze(-1), 
                                             batch['outcomes_mask'], torch.zeros_like(batch['outcomes_mask']))
             batch_output_ = batch_output[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_output_adj_ = batch_output_adj[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_labels_diffed_ = batch_labels_diffed[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
-            wt_ooss_batch_loss = self.loss(input=batch_output_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            wt_ooss_pearsonr = mi_pearsonr(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            wt_ooss_smape = mi_smape(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            wt_ooss_mae = mi_mae(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            wt_ooss_mse = mi_mse(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
+            wt_ooss_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
+            wt_ooss_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            wt_ooss_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            wt_ooss_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            wt_ooss_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
             
         oots_ooss_batch_loss, oots_ooss_pearsonr, oots_ooss_smape = default_loss, default_pearsonr, default_smape
         oots_ooss_mae, oots_ooss_mse = default_mae, default_mse
@@ -139,13 +161,15 @@ class MILightningModule(pl.LightningModule):
             batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1) & (batch['oots_mask']==1).unsqueeze(-1), 
                                             batch['outcomes_mask'], torch.zeros_like(batch['outcomes_mask']))
             batch_output_ = batch_output[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_output_adj_ = batch_output_adj[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_labels_diffed_ = batch_labels_diffed[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
-            oots_ooss_batch_loss = self.loss(input=batch_output_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            oots_ooss_pearsonr = mi_pearsonr(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            oots_ooss_smape = mi_smape(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            oots_ooss_mae = mi_mae(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            oots_ooss_mse = mi_mse(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
+            oots_ooss_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
+            oots_ooss_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            oots_ooss_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            oots_ooss_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            oots_ooss_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
             
         oots_batch_loss, oots_pearsonr, oots_smape = default_loss, default_pearsonr, default_smape
         oots_mae, oots_mse = default_mae, default_mse
@@ -153,13 +177,15 @@ class MILightningModule(pl.LightningModule):
             batch_mask_subset = torch.where((batch['oots_mask']==1).unsqueeze(-1), batch['outcomes_mask'], 
                                             torch.zeros_like(batch['outcomes_mask']))
             batch_output_ = batch_output[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_output_adj_ = batch_output_adj[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_labels_diffed_ = batch_labels_diffed[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
-            oots_batch_loss = self.loss(input=batch_output_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            oots_pearsonr = mi_pearsonr(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            oots_smape = mi_smape(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            oots_mae = mi_mae(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            oots_mse = mi_mse(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
+            oots_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
+            oots_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            oots_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            oots_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            oots_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
             
         ooss_batch_loss, ooss_pearsonr, ooss_smape = default_loss, default_pearsonr, default_smape
         ooss_mae, ooss_mse = default_mae, default_mse
@@ -167,13 +193,15 @@ class MILightningModule(pl.LightningModule):
             batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1), batch['outcomes_mask'], 
                                             torch.zeros_like(batch['outcomes_mask']))
             batch_output_ = batch_output[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_output_adj_ = batch_output_adj[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_labels_diffed_ = batch_labels_diffed[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
-            ooss_batch_loss = self.loss(input=batch_output_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            ooss_pearsonr = mi_pearsonr(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            ooss_smape = mi_smape(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            ooss_mae = mi_mae(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
-            ooss_mse = mi_mse(input=batch_output_, target=batch_labels_, mask=batch_mask_subset)
+            ooss_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
+            ooss_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            ooss_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            ooss_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            ooss_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
             
         log_metrics_dict = {}
         if not (ws_oots_batch_loss==default_loss): log_metrics_dict['val_ws_oots_loss'] = ws_oots_batch_loss
@@ -208,7 +236,7 @@ class MILightningModule(pl.LightningModule):
         
         self.log_dict(log_metrics_dict, on_step=False, on_epoch=True)
         step_output = {'ws_oots_loss': ws_oots_batch_loss, 'wt_ooss_loss': wt_ooss_batch_loss, 'oots_ooss_loss': oots_ooss_batch_loss,
-                            'oots_loss': oots_batch_loss, 'ooss_loss': ooss_batch_loss, 'pred': batch_output, 
+                            'oots_loss': oots_batch_loss, 'ooss_loss': ooss_batch_loss, 'pred': batch_output_adj, 
                             'ws_oots_pearsonr': ws_oots_pearsonr, 'wt_ooss_pearsonr': wt_ooss_pearsonr, 'oots_ooss_pearsonr': oots_ooss_pearsonr,
                             'oots_pearsonr': oots_pearsonr, 'ooss_pearsonr': ooss_pearsonr, 
                             'ws_oots_smape': ws_oots_smape, 'wt_ooss_smape': wt_ooss_smape, 'oots_ooss_smape': oots_ooss_smape, 
@@ -229,10 +257,12 @@ class MILightningModule(pl.LightningModule):
     def test_step(self, batch, batch_idx) -> STEP_OUTPUT:
         batch, batch_labels, seq_id = self.unpack_batch_model_inputs(batch)
         batch_output = self.model(**batch)
+        batch_labels_diffed = self.processor.shift_labels(batch_labels)
+        batch_output_adj = self.processor.reshift_labels(batch_output, batch_labels, batch['outcomes_mask']) 
         # TODO: Filter data based on two categories and compute loss/metrics for all categories:
         #               1. to the OOTS sample
         #               2. to the within time samples
-        batch_loss = self.loss(input=batch_output, target=batch_labels, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
+        batch_loss = self.loss(input=batch_output, target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
         step_metrics = self.calculate_metrics(batch_output, batch_labels)
         log_metrics_dict = {'test_loss': batch_loss}
         log_metrics_dict.update({'test_{}'.format(key): val for key, val in step_metrics.items()})
@@ -394,3 +424,56 @@ class MILightningModule(pl.LightningModule):
             for metric_name in self.metrics_fns:
                 self.logger.log_metrics({'test_epoch_{}'.format(metric_name): self.epoch_metrics['test'][metric_name][-1]}, step=self.current_epoch)
             self.step_outputs['test'].clear() 
+
+
+class TimeShiftProcessor:
+    """ Class to process the time shifted data """
+    def __init__(self, do_shift: bool, interpolation: bool) -> None:
+        self.shift = int(do_shift)
+        self.interpolation = interpolation
+    
+    def shift_labels(self, labels: torch.Tensor) -> torch.Tensor:
+        """ Shift and difference the labels """
+        # Shift the tensor by the shift duration. If shift duration is positive then shift to the right, else to the left. 
+        # If Shift is 0, then return the original tensor
+        if self.shift==0: return labels
+        zeros_tensor = torch.zeros(labels.shape[0], self.shift, labels.shape[2], device=labels.device)
+        shifted_labels = torch.cat([zeros_tensor, labels[:, :-self.shift]], dim=1) if self.shift>0 else torch.cat([labels[:, self.shift:], zeros_tensor], dim=1)
+        diffed_labels = labels - shifted_labels
+        return diffed_labels
+
+    def reshift_labels(self, output: torch.Tensor, labels: torch.Tensor, mask:torch.Tensor=None) -> torch.Tensor:
+        """
+            Reshift the output to the original scale. 
+            If shift is 0, then return the original output tensor
+            Labels are the original labels before shifting
+        """
+        if self.interpolation: return self.reshift_interpolated_labels(output, labels, mask)
+        if self.shift==0: return output
+        zeros_tensor = torch.zeros(labels.shape[0], self.shift, labels.shape[2], device=labels.device)
+        shifted_labels = torch.cat([zeros_tensor, labels[:, :-self.shift]], dim=1) if self.shift>0 else torch.cat([labels[:, self.shift:], zeros_tensor], dim=1)
+        reshifted_output = output + shifted_labels
+        # import pdb; pdb.set_trace()
+        return reshifted_output
+    
+    def reshift_interpolated_labels(self, output: torch.Tensor, labels: torch.Tensor, mask:torch.Tensor) -> torch.Tensor:
+        """
+            Reshift the output to the original scale.
+            mask is the outcomes mask.
+        """
+        if self.shift==0: return output
+        zero_tensor = torch.zeros(labels.shape[0], self.shift, labels.shape[2], device=labels.device)
+        shifted_labels = torch.cat([zero_tensor, labels[:, :-self.shift]], dim=1) if self.shift>0 else torch.cat([labels[:, self.shift:], zero_tensor], dim=1)
+        reshifted_output = output
+        
+        for seq_id in range(output.shape[0]):
+            prev_timestep_present = torch.ones(labels.shape[2], device=labels.device)
+            for timestep in range(labels.shape[1]):
+                for outcome_idx in range(labels.shape[2]):
+                    reshifted_output[seq_id, timestep, outcome_idx] += reshifted_output[seq_id, timestep-1, outcome_idx] if prev_timestep_present[outcome_idx]==0 else shifted_labels[seq_id, timestep, outcome_idx]
+                    try:
+                        prev_timestep_present[outcome_idx] = mask[seq_id, timestep, outcome_idx]
+                    except:
+                        import pdb; pdb.set_trace()
+        
+        return reshifted_output

@@ -51,16 +51,34 @@ def mi_mse(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
     """
     assert reduction in ["within-seq", "flatten", "none"], f"Invalid reduction: {reduction}. Choose from ['within-seq', 'flatten', 'none']"
     if mask is None:
-        mask = torch.ones(input.shape, device=input.device) 
+        mask = torch.ones(input.shape, device=input.device)
     
     if reduction == "within-seq":
-        loss = torch.square(input - target)*mask
-        loss = torch.sum(loss, axis=1)/torch.sum(mask, axis=1)
-        loss = torch.mean(loss, axis=0).mean()
+        if isinstance(input, tuple):
+            # residue = (target - input[0]) # TODO: Just regress the residual as loss
+            main_loss = torch.square(0.9*target - input[0])*mask
+            residual_loss = torch.square(0.1*target - input[1])*mask
+            main_loss = torch.sum(main_loss, axis=1)/torch.sum(mask, axis=1)
+            main_loss = torch.mean(main_loss, axis=0).mean()
+            residual_loss = torch.sum(residual_loss, axis=1)/torch.sum(mask, axis=1)
+            residual_loss = torch.mean(residual_loss, axis=0).mean()
+            loss = main_loss + residual_loss
+        else:
+            loss = torch.square(input - target)*mask
+            loss = torch.sum(loss, axis=1)/torch.sum(mask, axis=1)
+            loss = torch.mean(loss, axis=0).mean()
     elif reduction == "flatten":
-        loss = torch.square(input - target)*mask
-        loss = torch.sum(loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
-        loss = torch.mean(loss)
+        if isinstance(input, tuple):
+            residue = (target - input[0])
+            main_loss = torch.square(residue)*mask
+            residual_loss = torch.square(residue - input[1])*mask
+            main_loss = torch.sum(main_loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
+            residual_loss = torch.sum(residual_loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
+            loss = torch.mean(main_loss) + torch.mean(residual_loss)
+        else:
+            loss = torch.square(input - target)*mask
+            loss = torch.sum(loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
+            loss = torch.mean(loss)
     elif reduction == "none" or reduction is None:
         loss = torch.square(input - target)*mask
     
