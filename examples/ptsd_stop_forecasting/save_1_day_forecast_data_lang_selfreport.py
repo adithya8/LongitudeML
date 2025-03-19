@@ -4,6 +4,7 @@
 """
 from copy import deepcopy
 from typing import List, Union
+from functools import reduce
 from utils import add_to_path
 add_to_path(__file__)
 
@@ -45,33 +46,77 @@ def create_embs_mask(instance):
     return instance
 
 
-def create_outcomes_mask(instance, outcomes_names:List[str]):
+def create_outcomes_mask(instance, outcomes_names:List[str], infill_method:str='prev'):
     """
         Creates a mask for outcomes based on the following conditions:
         1. Infills None and missing values with 0.
         2. If outcome is present for a time_id, set mask = 1. Else set it to 0.
         Outcome mask is used to determine whether loss is calculated for a time_id or not. Hence the missing time_ids are masked with 0.
+        If infill_method is 'prev', then the missing values are infilled with the previous known values. Else the missing values are linearly interpolated between the previous and next known values.
     """
     num_outcomes = len(outcomes_names)
     sorted_time_ids = sorted(instance['time_ids'])
     # missing_time_ids = set(range(sorted_time_ids[0], sorted_time_ids[-1]+1)) - set(sorted_time_ids)
-    missing_time_ids = set(range(0, sorted_time_ids[-1]+1)) - set(sorted_time_ids)
+    missing_time_ids = set(range(sorted_time_ids[0], sorted_time_ids[-1]+1)) - set(sorted_time_ids)
     min_time_id = sorted_time_ids[0]
-    infill_mask = []  
-    # for time_id in range(sorted_time_ids[0], sorted_time_ids[-1]+1):
-    for time_id in range(min_time_id, sorted_time_ids[-1]+1):
-        if time_id in missing_time_ids:
-            infill_mask.insert(time_id-min_time_id, [0]*num_outcomes) # inserting 0 as mask at the missing time_id
-            instance['outcomes'].insert(time_id-min_time_id, [0]*num_outcomes)
-            instance['time_ids'].insert(time_id-min_time_id, time_id)
-        else:
-            temp_infill_mask = [1]*num_outcomes
-            for idx in range(num_outcomes):
-                if instance['outcomes'][time_id-min_time_id][idx] is None:
-                    instance['outcomes'][time_id-min_time_id][idx] = 0
-                    temp_infill_mask[idx] = 0
-            infill_mask.insert(time_id-min_time_id, temp_infill_mask)                
-    instance['outcomes_mask'] = infill_mask
+    prev_known_outcomes = [0]*num_outcomes
+    infill_mask = []
+    if infill_method == 'prev':  
+        # for time_id in range(sorted_time_ids[0], sorted_time_ids[-1]+1):
+        for time_id in range(min_time_id, sorted_time_ids[-1]+1):
+            if time_id in missing_time_ids:
+                infill_mask.insert(time_id-min_time_id, [0]*num_outcomes) # inserting 0 as mask at the missing time_id
+                instance['outcomes'].insert(time_id-min_time_id, prev_known_outcomes)
+                instance['time_ids'].insert(time_id-min_time_id, time_id)
+            else:
+                temp_infill_mask = [1]*num_outcomes
+                for outcome_idx in range(num_outcomes):
+                    if instance['outcomes'][time_id-min_time_id][outcome_idx] is None:
+                        instance['outcomes'][time_id-min_time_id][outcome_idx] = prev_known_outcomes[outcome_idx]
+                        temp_infill_mask[outcome_idx] = 0
+                    prev_known_outcomes = instance['outcomes'][time_id-min_time_id]
+                infill_mask.insert(time_id-min_time_id, temp_infill_mask)                
+        instance['outcomes_mask'] = infill_mask
+    else:
+        # Use linear interpolation to infill the missing values between two known values        
+        # Iterate over each outcome and infill the missing values. It is possible that the infill_mask could say that an outcome is present but the outcome is None. 
+        # So recompute the mask based on the outcomes.
+        outcomes_masks, outcomes = [], []
+        for outcome_idx in range(num_outcomes):
+            outcome_values = [outcome[outcome_idx] for outcome in instance['outcomes']]
+            outcome_mask = [1 if outcome is not None and outcome != 0 else 0 for outcome in outcome_values]
+            time_ids = instance['time_ids']
+            for time_id, mask in zip(time_ids, outcome_mask):
+                if mask == 0: missing_time_ids.add(time_id)
+            current_time_idx, current_time_id = 0, min_time_id
+            while current_time_id < sorted_time_ids[-1]:
+                if current_time_id in missing_time_ids:
+                    # Use two pointer approach to find the next known value and interpolate the missing values
+                    current_time_idx = current_time_id - min_time_id
+                    next_time_idx = current_time_idx 
+                    while next_time_idx<=(time_ids[-1]-min_time_id+1) and outcome_mask[next_time_idx] == 0: 
+                        next_time_idx += 1
+                    # Linear interpolation
+                    prev_time_id, next_time_id = time_ids[current_time_idx-1], time_ids[next_time_idx]
+                    prev_outcome, next_outcome = outcome_values[current_time_idx-1], outcome_values[next_time_idx]
+                    if next_outcome is None: next_outcome = prev_outcome # If the last stretch of values are all None, just copy the previous value
+                    for time_id in range(prev_time_id+1, next_time_id):
+                        outcome_values.insert(time_id-min_time_id, prev_outcome + (next_outcome - prev_outcome)*(time_id-prev_time_id)/(next_time_id-prev_time_id))
+                        time_ids.insert(time_id-min_time_id, time_id)
+                        outcome_mask.insert(time_id-min_time_id, 0)
+                    current_time_id = next_time_id -1
+                current_time_id += 1
+
+            outcomes_masks.append(outcome_mask)
+            outcomes.append(outcome_values)                
+        
+        outcomes_masks = zip(*outcomes_masks)
+        instance['outcomes_mask'] = [list(outcome_mask) for outcome_mask in outcomes_masks]
+        
+        outcomes = zip(*outcomes)
+        instance['outcomes'] = [list(outcome) for outcome in outcomes]
+        
+        instance['time_ids'] = time_ids
     
     return instance
 
@@ -122,6 +167,7 @@ def merge_features_outcomes(long_outcomes:Dataset, long_features:Dataset, reset_
                 merged_instance["outcomes"].append(infill_outcomes)
                 merged_instance["outcomes_mask"].append(infill_outcomes_mask)
             else:
+                infill_outcomes = outcomes_instance["outcomes"][outcomes_timeids_idx[time_id]]
                 outcomes_time_idx = outcomes_timeids_idx[time_id]
                 merged_instance["outcomes"].append(outcomes_instance["outcomes"][outcomes_time_idx])
                 merged_instance["outcomes_mask"].append(outcomes_instance["outcomes_mask"][outcomes_time_idx])        
@@ -449,9 +495,9 @@ if __name__ == '__main__':
     
     ###############################
     
-    long_outcomes = long_outcomes.map(lambda x: create_outcomes_mask(x, outcomes_names))
+    long_outcomes = long_outcomes.map(lambda x: create_outcomes_mask(x, outcomes_names, infill_method='inter'))
     print ("Outcomes mask pattern created.")
-
+    
     long_merged_features = merge_features(feature_datasets=[long_sr_features, long_lang_features, long_wtc_pclsubscales], 
                                           feature_suffixes=['_subscales', '_lang', '_wtcSubscales'])
     
@@ -514,6 +560,7 @@ if __name__ == '__main__':
         batch['folds'] = [(i - adjustment_factor)%num_folds for i in batch['idx']]
         return batch
     
+    merged_dataset_fulllength = merged_dataset_fulllength.shuffle(seed=42) 
     merged_dataset_fulllength = merged_dataset_fulllength.map(compute_mean_std)
     merged_dataset_fulllength = merged_dataset_fulllength.sort('std_outcome').sort('avg_outcome')
     merged_dataset_fulllength = merged_dataset_fulllength.add_column('idx', list(range(len(merged_dataset_fulllength))))
@@ -544,31 +591,39 @@ if __name__ == '__main__':
         instance['std_subscales'] = std_subscales
         return instance
     
-    def normalize_subscales(instance, avg, std):
+    def normalize_subscales(instance, avg, std, embs_name):
         avg, std = np.array(avg), np.array(std)
         temp = []
-        for idx, (mask, subscales) in enumerate(zip(instance['mask_subscales'], instance['embeddings_subscales'])):
-            ss_z = ((np.array(subscales) - avg) / std).tolist() if mask==0 else [0]*len(subscales)
+        for idx, (mask, embs) in enumerate(zip(instance['mask_{}'.format(embs_name)], instance['embeddings_{}'.format(embs_name)])):
+            ss_z = ((np.array(embs) - avg) / std).tolist() #if mask==0 else [0]*len(subscales)
             temp.append(ss_z)
-        instance['embeddings_subscales_z'] = temp
+        instance['embeddings_{}_z'.format(embs_name)] = temp
         return instance
     
-    subscales_mean = np.zeros(5)
-    subscales_std = np.zeros(5)
-    num_obs = 0
-    def compute_flatten_mean_std_subscales(instance):
+    def compute_flatten_mean_std_subscales(instance, embs_name):
         """Compute mean and std using streaming algorithm."""
-        global subscales_mean, subscales_std, num_obs
-        for idx, (subscales, subscales_mask, oots_mask) in enumerate(zip(instance['embeddings_subscales'], instance['mask_subscales'], instance['oots_mask'])):
-            if subscales_mask==0 and oots_mask==0:
-                num_obs += 1
-                subscales_mean += np.array(subscales) 
-                subscales_std += np.array(subscales)**2
+        # global subscales_mean, subscales_std, num_obs
+        global embs_agg
+        for idx, (embs, embs_mask, oots_mask) in enumerate(zip(instance['embeddings_{}'.format(embs_name)], instance['mask_{}'.format(embs_name)], instance['oots_mask'])):
+            # if subscales_mask==0 and oots_mask==0:
+                embs_agg['{}_num'.format(embs_name)] += 1
+                # embs_mean += np.array(embs)
+                # embs_std += np.array(embs)**2
+                embs_agg['{}_mean'.format(embs_name)] += np.array(embs)
+                embs_agg['{}_std'.format(embs_name)] += np.array(embs)**2
         
-    merged_dataset_fulllength.filter(lambda x: x['folds'] != 4).map(compute_flatten_mean_std_subscales)
-    subscales_mean /= num_obs
-    subscales_std = np.sqrt(subscales_std/num_obs - subscales_mean**2)
-    merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: normalize_subscales(x, subscales_mean, subscales_std))
+    embs_agg = {'subscales_mean':np.zeros(5), 'subscales_std':np.zeros(5), 'subscales_num': 0}
+    merged_dataset_fulllength.filter(lambda x: x['folds'] != 4).map(lambda x: compute_flatten_mean_std_subscales(x, 'subscales'))
+    embs_agg['subscales_mean'] /= embs_agg['subscales_num']
+    embs_agg['subscales_std'] = np.sqrt(embs_agg['subscales_std']/embs_agg['subscales_num'] - embs_agg['subscales_mean']**2)
+    merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: normalize_subscales(x, embs_agg['subscales_mean'], embs_agg['subscales_std'], 'subscales'))
+    
+    embs_agg.update({'lang_mean':np.zeros(64), 'lang_std':np.zeros(64), 'lang_num': 0})
+    merged_dataset_fulllength = merged_dataset_fulllength.filter(lambda x: x['folds'] != 4).map(lambda x: compute_flatten_mean_std_subscales(x, 'lang'))
+    embs_agg['lang_mean'] /= embs_agg['lang_num']
+    embs_agg['lang_std'] = np.sqrt(embs_agg['lang_std']/embs_agg['lang_num'] - embs_agg['lang_mean']**2)
+    merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: normalize_subscales(x, embs_agg['lang_mean'], embs_agg['lang_std'], 'lang'))
+    
     # Hierarchical average
     # merged_dataset_trainset = merged_dataset_fulllength.filter(lambda x: x['folds'] != 4).map(compute_mean_std_subscales)
     # avg_avg_subscales, avg_std_subscales = np.mean(merged_dataset_trainset['avg_subscales'], axis=0), np.mean(merged_dataset_trainset['std_subscales'], axis=0)
@@ -582,7 +637,9 @@ if __name__ == '__main__':
     print (merged_dataset_fulllength)
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max90days_v6_60combined_5fold_oots')
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots')
-    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots')
+    # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')
+    # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')    
+    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_aheadInterpolated_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')
 
     ###############################
     #  Now we create a dev set out of this, by cutting off one fold as the held out sequence and cutting off time points after 60 days as held out time 
@@ -601,13 +658,17 @@ if __name__ == '__main__':
     merged_dataset_devset = merged_dataset_devset.filter(outcomes_filter_sequences_dev)
     # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max60days_v6_40combined_devset_oots')
     
-    subscales_mean = np.zeros(5)
-    subscales_std = np.zeros(5)
-    num_obs = 0
-    merged_dataset_devset.filter(lambda x: x['folds'] != 0).map(compute_flatten_mean_std_subscales)
-    subscales_mean /= num_obs
-    subscales_std = np.sqrt(subscales_std/num_obs - subscales_mean**2)
-    merged_dataset_devset = merged_dataset_devset.map(lambda x: normalize_subscales(x, subscales_mean, subscales_std))
+    embs_agg = {'subscales_mean':np.zeros(5), 'subscales_std':np.zeros(5), 'subscales_num': 0, 
+                'lang_mean':np.zeros(64), 'lang_std':np.zeros(64), 'lang_num': 0}
+    merged_dataset_devset.filter(lambda x: x['folds'] != 0).map(lambda x: compute_flatten_mean_std_subscales(x, 'subscales'))
+    embs_agg['subscales_mean'] /= embs_agg['subscales_num']
+    embs_agg['subscales_std'] = np.sqrt(embs_agg['subscales_std']/embs_agg['subscales_num'] - embs_agg['subscales_mean']**2)
+    merged_dataset_devset = merged_dataset_devset.map(lambda x: normalize_subscales(x, embs_agg['subscales_mean'], embs_agg['subscales_std'], 'subscales'))
+    
+    merged_dataset_devset.filter(lambda x: x['folds'] != 0).map(lambda x: compute_flatten_mean_std_subscales(x, 'lang'))
+    embs_agg['lang_mean'] /= embs_agg['lang_num']
+    embs_agg['lang_std'] = np.sqrt(embs_agg['lang_std']/embs_agg['lang_num'] - embs_agg['lang_mean']**2)
+    merged_dataset_devset = merged_dataset_devset.map(lambda x: normalize_subscales(x, embs_agg['lang_mean'], embs_agg['lang_std'], 'lang'))
     
     ## Hierarchical average and std for normalization    
     # merged_dataset_devset_train = merged_dataset_devset.map(compute_mean_std_subscales)
@@ -616,5 +677,7 @@ if __name__ == '__main__':
     
     print (merged_dataset_devset)
     # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots')
-    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots')    
+    # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')
+    # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')
+    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_aheadInterpolated_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')    
     ###############################    
