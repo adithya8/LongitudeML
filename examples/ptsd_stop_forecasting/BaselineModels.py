@@ -110,20 +110,6 @@ class ARSubscaleZ(nn.Module):
         return self.subscaleAR_model(embeddings_subscales_z, mask_subscales, **kwargs)
     
 
-class ARSubscaleShifted(nn.Module):
-    """Auto Regressive Subscale Model with shifted embeddings"""
-    def __init__(self, subscaleAR:AutoRegressiveLinear):
-        super(ARSubscaleShifted, self).__init__()
-        self.subscaleAR_model = subscaleAR
-        
-    def forward(self, embeddings_subscales, mask_subscales, **kwargs):
-        embeddings_subscales_shifted = torch.cat([torch.zeros_like(embeddings_subscales[:, :1]), embeddings_subscales[:, :-1]], dim=1)
-        embeddings_subscales_diff = embeddings_subscales - embeddings_subscales_shifted
-        diff_pred = self.subscaleAR_model(embeddings_subscales_diff, mask_subscales, **kwargs)
-        pred = embeddings_subscales_shifted[:, :, :1] + diff_pred  
-        # import pdb; pdb.set_trace()
-        return pred
-
 class ARSubscaleLang(nn.Module):
     """Auto Regressive Subscale with Language concatenated"""
     def __init__(self, subscaleAR:AutoRegressiveLinear, LangAR:AutoRegressiveLinear):
@@ -135,6 +121,19 @@ class ARSubscaleLang(nn.Module):
         output = self.subscaleAR_model(embeddings_subscales, mask_subscales, **kwargs) + self.langAR_model(embeddings_lang, mask_lang, **kwargs)
         # output /= 2.0
         return output
+
+class ARSubscaleLangCat(nn.Module):
+    """ Auto Regressive Subscale with Language concatenated """
+    def __init__(self, ARmodel:AutoRegressiveLinear):
+        super(ARSubscaleLangCat, self).__init__()
+        self.ARmodel = ARmodel
+        
+    def forward(self, embeddings_subscales, mask_subscales, embeddings_lang, mask_lang, **kwargs):
+        embeddings = torch.cat([embeddings_subscales, embeddings_lang], dim=2)
+        # Take the logical OR for the masks
+        mask = mask_subscales | mask_lang
+        return self.ARmodel(embeddings, mask, **kwargs)
+    
     
 class ARSubscaleZLang(nn.Module):
     """Auto Regressive Subscale with Language concatenated"""
@@ -147,6 +146,35 @@ class ARSubscaleZLang(nn.Module):
         output = self.subscaleAR_model(embeddings_subscales_z, mask_subscales, **kwargs) + self.langAR_model(embeddings_lang, mask_lang, **kwargs)
         # output /= 2.0
         return output
+
+
+class ARSubscaleZLangZ(nn.Module):
+    """Auto Regressive Subscale with Language concatenated"""
+    def __init__(self, subscaleAR:AutoRegressiveLinear, LangAR:AutoRegressiveLinear):
+        super(ARSubscaleZLangZ, self).__init__()
+        self.subscaleAR_model = subscaleAR
+        self.langAR_model = LangAR
+        
+    def forward(self, embeddings_subscales_z, mask_subscales, embeddings_lang_z, mask_lang, **kwargs):
+        with torch.no_grad():
+            output_subscale = self.subscaleAR_model(embeddings_subscales_z, mask_subscales, **kwargs) 
+        output_lang = self.langAR_model(embeddings_lang_z, mask_lang, **kwargs)
+        output = output_subscale + output_lang
+        # return (output, (output_subscale, output_lang))
+        return output
+
+class ARSubscaleZLangZCat(nn.Module):
+    """ Auto Regressive Subscale with Language concatenated """
+    def __init__(self, ARmodel:AutoRegressiveLinear):
+        super(ARSubscaleZLangZCat, self).__init__()
+        self.ARmodel = ARmodel
+        
+    def forward(self, embeddings_subscales_z, mask_subscales, embeddings_lang_z, mask_lang, **kwargs):
+        embeddings = torch.cat([embeddings_subscales_z, embeddings_lang_z], dim=2)
+        # Take the logical OR for the masks
+        mask = mask_subscales | mask_lang
+        return self.ARmodel(embeddings, mask, **kwargs)
+
     
 ##############################################
     
@@ -159,7 +187,9 @@ BSLN_ARCHS = {
     'linear_subscales_z': LinearRegressionSubscalesZ,
     'ar_subscale': ARSubscale,
     'ar_subscale_z': ARSubscaleZ,
-    'ar_subscale_shifted': ARSubscaleShifted,
     'ar_subscale_lang': ARSubscaleLang,
+    'ar_subscale_lang_cat': ARSubscaleLangCat,
     'ar_subscale_z_lang': ARSubscaleZLang,
+    'ar_subscale_z_lang_z': ARSubscaleZLangZ,
+    'ar_subscale_z_lang_z_cat': ARSubscaleZLangZCat
 }

@@ -59,18 +59,26 @@ if __name__ == '__main__':
             subscalesLinear = BSLN_ARCHS['linear_subscales'](input_size=5, output_size=args.num_outcomes)
             langLinear = BSLN_ARCHS['linear'](input_size=args.input_size, output_size=args.num_outcomes)
             model = BSLN_ARCHS[args.custom_model](subscalesLinear, langLinear)
-        elif args.custom_model in ['ar_subscale', 'ar_subscale_z', 'ar_subscale_shifted']:
+        elif args.custom_model in ['ar_subscale', 'ar_subscale_z', 'ar_subscale_lang_cat', 'ar_subscale_z_lang_z_cat']:
             subscaleAR = AutoRegressiveLinear(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                          num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                          max_len=args.max_len)
             model = BSLN_ARCHS[args.custom_model](subscaleAR)
-        elif args.custom_model in ['ar_subscale_lang', 'ar_subscale_z_lang']:
+        elif args.custom_model in ['ar_subscale_lang', 'ar_subscale_z_lang', 'ar_subscale_z_lang_z']:
             subscaleAR = AutoRegressiveLinear(input_size=5, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                             num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                             max_len=args.max_len)
+            if args.subscale_weights_path is not None:
+                subscaleAR_weights = torch.load(args.subscale_weights_path)
+                subscaleAR.model[0].weight.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.model.0.weight']
+                subscaleAR.model[0].bias.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.model.0.bias']
             langAR = AutoRegressiveLinear(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                             num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                             max_len=args.max_len)
+            if args.lang_weights_path is not None:
+                langAR_weights = torch.load(args.lang_weights_path)
+                langAR.model[0].weight.data = langAR_weights['state_dict']['model.langAR_model.model.0.weight']
+                langAR.model[0].bias.data = langAR_weights['state_dict']['model.langAR_model.model.0.bias']
             model = BSLN_ARCHS[args.custom_model](subscaleAR, langAR)
         else:
             raise ValueError('Invalid custom model: {}'.format(args.custom_model))
@@ -108,7 +116,8 @@ if __name__ == '__main__':
     # callbacks.append(pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1, save_last=False))
     trainer = pl.Trainer(accelerator='gpu', devices=1, default_root_dir=args.output_dir, logger=logger,
                         # callbacks=callbacks, 
-                        min_epochs=args.min_epochs, max_epochs=args.epochs)
+                        min_epochs=args.min_epochs, max_epochs=args.epochs,
+                        log_every_n_steps=2)
     lightning_module = MILightningModule(args=args, model=model) 
     
     print ("*** Training ***")
