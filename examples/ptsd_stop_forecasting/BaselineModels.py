@@ -4,7 +4,7 @@ add_to_path(__file__)
 import torch.nn as nn
 import torch
 
-from src import AutoRegressiveLinear
+from src import AutoRegressiveLinear, AutoRegressiveLinear2
 
 # NOTE: Add the class to the BSLN_ARCHS dictionary at the bottom of the file.
 
@@ -90,6 +90,33 @@ class LinearRegressionSubscalesZ(nn.Module):
         return self.linear(embeddings_subscales_z) 
 
 
+class LastNPCLMean(nn.Module):
+    """ Last N days' mean value of the PCL """
+    def __init__(self, subscaleAR: AutoRegressiveLinear2):
+        super(LastNPCLMean, self).__init__()
+        self.subscaleAR_model = subscaleAR
+        self.max_len = self.subscaleAR_model.max_len
+        self.subscaleAR_model.linear.weight.data.fill_(1)
+        self.subscaleAR_model.linear.bias.data.fill_(0)
+
+        
+    def forward(self, embeddings_subscales, mask_subscales, **kwargs):
+        # with torch.no_grad():
+        output = self.subscaleAR_model(embeddings_subscales[:, :, :1], mask_subscales, **kwargs)
+        if self.max_len > 1:
+            M = min(self.max_len, embeddings_subscales.shape[1])
+            # The output should be averaged by the number of days (max_len) for the last N - max_len + 1 days. For the first max_len - 1 days, the outputs should be divided by rage(1, max_len)
+            divy_tensor = torch.cat([torch.arange(1, M).unsqueeze(0).to(embeddings_subscales.device), 
+                                        torch.full((1, embeddings_subscales.shape[1] - M + 1), M).to(embeddings_subscales.device)], 
+                                    dim=1).unsqueeze(-1)
+            # divy_tensor = torch.tensor(self.max_len).to(embeddings_subscales.device).expand(1, embeddings_subscales.shape[1], 1)
+            # Shape: [1, seq_len, 1]
+            output = output / divy_tensor.to(torch.float32)
+        
+        # output.requires_grad = True
+        return output
+
+
 class ARSubscale(nn.Module):
     """Auto Regressive Subscale Model with given history length"""
     def __init__(self, subscaleAR:AutoRegressiveLinear):
@@ -108,6 +135,38 @@ class ARSubscaleZ(nn.Module):
         
     def forward(self, embeddings_subscales_z, mask_subscales, **kwargs):
         return self.subscaleAR_model(embeddings_subscales_z, mask_subscales, **kwargs)
+
+
+class ARPCLZ(nn.Module):
+    """Auto Regressive PCL total Model with Z-scores"""
+    def __init__(self, subscaleAR:AutoRegressiveLinear):
+        super(ARPCLZ, self).__init__()
+        self.subscaleAR_model = subscaleAR
+        
+    def forward(self, embeddings_subscales_z, mask_subscales, **kwargs):
+        return self.subscaleAR_model(embeddings_subscales_z[:, : ,:1], mask_subscales, **kwargs)
+    
+
+class ARPCL(nn.Module):
+    """Auto Regressive PCL total Model"""
+    def __init__(self, subscaleAR:AutoRegressiveLinear2):
+        super(ARPCL, self).__init__()
+        self.subscaleAR_model = subscaleAR
+        self.max_len = self.subscaleAR_model.max_len
+        
+    def forward(self, embeddings_subscales, mask_subscales, **kwargs):
+        output = self.subscaleAR_model(embeddings_subscales[:, : ,:1], mask_subscales, **kwargs)
+        if self.max_len > 1:
+            M = min(self.max_len, embeddings_subscales.shape[1])
+            # The output should be averaged by the number of days (max_len) for the last N - max_len + 1 days. For the first max_len - 1 days, the outputs should be divided by rage(1, max_len)
+            divy_tensor = torch.cat([torch.arange(1, M).unsqueeze(0).to(embeddings_subscales.device), 
+                                        torch.full((1, embeddings_subscales.shape[1] - M + 1), M).to(embeddings_subscales.device)], 
+                                    dim=1).unsqueeze(-1)
+            # divy_tensor = torch.tensor(self.max_len).to(embeddings_subscales.device).expand(1, embeddings_subscales.shape[1], 1)
+            # Shape: [1, seq_len, 1]
+            output = output / divy_tensor.to(torch.float32)
+        return output
+
     
 
 class ARSubscaleLang(nn.Module):
@@ -175,6 +234,67 @@ class ARSubscaleZLangZCat(nn.Module):
         mask = mask_subscales | mask_lang
         return self.ARmodel(embeddings, mask, **kwargs)
 
+
+class ARSubscaleZMissingIndicator(nn.Module):
+    """Auto Regressive Subscale Model with Z-scores and Masks as Missing Indicator"""
+    def __init__(self, subscaleAR:AutoRegressiveLinear):
+        super(ARSubscaleZMissingIndicator, self).__init__()
+        self.subscaleAR_model = subscaleAR
+        
+    def forward(self, embeddings_subscales_z, mask_subscales, **kwargs):
+        input_tensor = torch.cat([embeddings_subscales_z, mask_subscales.unsqueeze(-1).to(embeddings_subscales_z.dtype)], dim=2)
+        return self.subscaleAR_model(input_tensor, mask_subscales, **kwargs)
+    
+
+class ARSubscaleZLangZMissingIndicators(nn.Module):
+    """Auto Regressive Subscale Model with Z-scores and Masks as Missing Indicator"""
+    def __init__(self, subscaleAR:AutoRegressiveLinear, langAR:AutoRegressiveLinear):
+        super(ARSubscaleZLangZMissingIndicators, self).__init__()
+        self.subscaleAR_model = subscaleAR
+        self.langAR_model = langAR
+        
+    def forward(self, embeddings_subscales_z, mask_subscales, embeddings_lang_z, mask_lang, **kwargs):
+        input_tensor_subscale = torch.cat([embeddings_subscales_z, mask_subscales.unsqueeze(-1).to(embeddings_subscales_z.dtype)], dim=2)
+        with torch.no_grad():
+            output_subscale = self.subscaleAR_model(input_tensor_subscale, mask_subscales, **kwargs)
+        input_tensor_lang = torch.cat([embeddings_lang_z, mask_lang.unsqueeze(-1).to(embeddings_lang_z.dtype)], dim=2)
+        output_lang = self.langAR_model(input_tensor_lang, mask_lang, **kwargs)
+        output = output_subscale + output_lang
+        return output
+
+
+class ARSubscaleZLastObserved(nn.Module):
+    """Auto Regressive Subscale Model with Z-scores and continuous integral value denoting last observed value"""
+    def __init__(self, subscaleAR:AutoRegressiveLinear):
+        super(ARSubscaleZLastObserved, self).__init__()
+        self.subscaleAR_model = subscaleAR
+        
+    def forward(self, embeddings_subscales_z, mask_subscales, embeddings_lang_z, mask_lang, **kwargs):
+        lastobserved_subscales = kwargs["lastobserved_subscales"].unsqueeze(-1).to(embeddings_subscales_z.dtype)
+        input_tensor_subscale = torch.cat([embeddings_subscales_z, lastobserved_subscales], dim=2)
+        output = self.subscaleAR_model(input_tensor_subscale, mask_subscales, **kwargs)/lastobserved_subscales
+        return output
+
+
+
+class ARSubscaleZLangZLastObserved(nn.Module):
+    """Auto Regressive Subscale Model with Z-scores and continuous integral value denoting last observed value"""
+    def __init__(self, subscaleAR:AutoRegressiveLinear, langAR:AutoRegressiveLinear):
+        super(ARSubscaleZLangZLastObserved, self).__init__()
+        self.subscaleAR_model = subscaleAR
+        self.langAR_model = langAR
+        
+    def forward(self, embeddings_subscales_z, mask_subscales, embeddings_lang_z, mask_lang, **kwargs):
+        lastobserved_subscales = kwargs["lastobserved_subscales"].unsqueeze(-1).to(embeddings_subscales_z.dtype)
+        input_tensor_subscale = torch.cat([embeddings_subscales_z, lastobserved_subscales], dim=2)
+        with torch.no_grad():
+            output_subscale = self.subscaleAR_model(input_tensor_subscale, mask_subscales, **kwargs)#/lastobserved_subscales
+        lastobserved_lang = kwargs["lastobserved_lang"].unsqueeze(-1).to(embeddings_lang_z.dtype)
+        input_tensor_lang = torch.cat([embeddings_lang_z, lastobserved_lang], dim=2)
+        output_lang = self.langAR_model(input_tensor_lang, mask_lang, **kwargs)#/lastobserved_lang
+        output = output_subscale + output_lang
+        return output
+
     
 ##############################################
     
@@ -185,11 +305,18 @@ BSLN_ARCHS = {
     'linear_subscales_bn': LinearRegressionSubscalesBN,
     'linear_subscales_lang': LinearRegressionSubscalesLang,
     'linear_subscales_z': LinearRegressionSubscalesZ,
+    'last_n_pcl_mean': LastNPCLMean,
     'ar_subscale': ARSubscale,
     'ar_subscale_z': ARSubscaleZ,
+    'ar_pcl': ARPCL,
+    'ar_pcl_z': ARPCLZ,
     'ar_subscale_lang': ARSubscaleLang,
     'ar_subscale_lang_cat': ARSubscaleLangCat,
     'ar_subscale_z_lang': ARSubscaleZLang,
     'ar_subscale_z_lang_z': ARSubscaleZLangZ,
-    'ar_subscale_z_lang_z_cat': ARSubscaleZLangZCat
+    'ar_subscale_z_lang_z_cat': ARSubscaleZLangZCat,
+    'ar_subscale_z_missing': ARSubscaleZMissingIndicator,
+    'ar_subscale_z_lang_z_missing': ARSubscaleZLangZMissingIndicators,
+    'ar_subscale_z_lastobserved': ARSubscaleZLastObserved,
+    'ar_subscale_z_lang_z_lastobserved': ARSubscaleZLangZLastObserved
 }

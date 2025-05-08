@@ -17,7 +17,7 @@ from src import (
     get_default_args, get_logger,
     get_datasetDict, create_mask, MIDataLoaderModule,
     MILightningModule, recurrent, AutoRegressiveTransformer, PositionalEncoding,
-    AutoRegressiveLinear
+    AutoRegressiveLinear, AutoRegressiveLinear2,
 )
 
 from CustomTransformers import TRNS_ARCHS      
@@ -59,13 +59,30 @@ if __name__ == '__main__':
             subscalesLinear = BSLN_ARCHS['linear_subscales'](input_size=5, output_size=args.num_outcomes)
             langLinear = BSLN_ARCHS['linear'](input_size=args.input_size, output_size=args.num_outcomes)
             model = BSLN_ARCHS[args.custom_model](subscalesLinear, langLinear)
-        elif args.custom_model in ['ar_subscale', 'ar_subscale_z', 'ar_subscale_lang_cat', 'ar_subscale_z_lang_z_cat']:
-            subscaleAR = AutoRegressiveLinear(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
+        elif args.custom_model in ['last_n_pcl_mean', 'ar_subscale', 'ar_subscale_z', 'ar_pcl', 'ar_pcl_z',  'ar_subscale_lang_cat', 'ar_subscale_z_lang_z_cat', 
+                                   'ar_subscale_z_missing', 'ar_subscale_z_lastobserved']:
+            subscaleAR = AutoRegressiveLinear2(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                          num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                          max_len=args.max_len)
             model = BSLN_ARCHS[args.custom_model](subscaleAR)
         elif args.custom_model in ['ar_subscale_lang', 'ar_subscale_z_lang', 'ar_subscale_z_lang_z']:
             subscaleAR = AutoRegressiveLinear(input_size=5, hidden_size=args.hidden_size, num_classes=args.num_classes,
+                                            num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
+                                            max_len=args.max_len)
+            if args.subscale_weights_path is not None:
+                subscaleAR_weights = torch.load(args.subscale_weights_path)
+                subscaleAR.model[0].weight.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.model.0.weight']
+                subscaleAR.model[0].bias.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.model.0.bias']
+            langAR = AutoRegressiveLinear(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
+                                            num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
+                                            max_len=args.max_len)
+            if args.lang_weights_path is not None:
+                langAR_weights = torch.load(args.lang_weights_path)
+                langAR.model[0].weight.data = langAR_weights['state_dict']['model.langAR_model.model.0.weight']
+                langAR.model[0].bias.data = langAR_weights['state_dict']['model.langAR_model.model.0.bias']
+            model = BSLN_ARCHS[args.custom_model](subscaleAR, langAR)
+        elif args.custom_model in ['ar_subscale_z_lang_z_missing', 'ar_subscale_z_lang_z_lastobserved']:
+            subscaleAR = AutoRegressiveLinear(input_size=6, hidden_size=6, num_classes=args.num_classes,
                                             num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                             max_len=args.max_len)
             if args.subscale_weights_path is not None:
@@ -120,7 +137,10 @@ if __name__ == '__main__':
                         log_every_n_steps=2)
     lightning_module = MILightningModule(args=args, model=model) 
     
-    print ("*** Training ***")
+    print ("*** Running Initial Validation ***")
+    trainer.validate(lightning_module, dataloaders=dataloaderModule.val_dataloader())
+    
+    #print ("*** Training ***")
     trainer.fit(lightning_module, train_dataloaders=dataloaderModule.train_dataloader(), val_dataloaders=dataloaderModule.val_dataloader())
 
     # Save predictions to output_dir    
@@ -132,7 +152,6 @@ if __name__ == '__main__':
     with open(os.path.join(args.output_dir, '{}/{}/epoch_metrics.pkl'.format(logger._project_name, logger._experiment_key)), 'wb') as f:
         pickle.dump(lightning_module.epoch_metrics, f, protocol=pickle.HIGHEST_PROTOCOL)
     print ('Saved epoch metrics to {}'.format(os.path.join(args.output_dir, '{}/{}/epoch_metrics.pkl'.format(logger._project_name, logger._experiment_key))))
-        
     logger.experiment.end()    
     
 """

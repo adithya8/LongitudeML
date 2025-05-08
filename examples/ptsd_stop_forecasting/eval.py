@@ -167,13 +167,13 @@ def within_seq_metric(metric:Union[str, callable], seq_ids:List, labels:List[Lis
     assert (isinstance(metric, str) and metric in ["mse", "smape", "pearsonr", "mae"]) or callable(metric), "Invalid metric. Choose from ['mse', 'smape', 'pearsonr', 'mae'] or provide a callable function."
 
     if isinstance(metric, str):
-        if metric == "mse": 
+        if metric.endswith("mse"): 
             metric_func = compute_mse
-        elif metric == "smape":
+        elif metric.endswith("smape"):
             metric_func = compute_smape
-        elif metric == "pearsonr":
+        elif metric.endswith("pearsonr"):
             metric_func = compute_pearsonr
-        elif metric == "mae":
+        elif metric.endswith("mae"):
             metric_func = compute_mae
         metric_name = metric
     else:
@@ -182,6 +182,8 @@ def within_seq_metric(metric:Union[str, callable], seq_ids:List, labels:List[Lis
     
     metric_values_dict = {} # Dictionary to store metric values for each sequence
     mean_metric_value = 0.0
+    weighted_mean_metric_value_nr = 0.0
+    weighted_mean_metric_value_dr = 0.0
     if metric_name == "pearsonr":
         # Collect pearson values and p-values for each sequence
         # aggregated p_value is the harmonic mean of p-values
@@ -199,7 +201,10 @@ def within_seq_metric(metric:Union[str, callable], seq_ids:List, labels:List[Lis
             metric_value = metric_func(label, pred, outcome_mask)
             metric_values_dict[seq_id] = metric_value
             mean_metric_value += metric_value
+            weighted_mean_metric_value_nr += metric_value * sum(outcome_mask)
+            weighted_mean_metric_value_dr += sum(outcome_mask)
         mean_metric_value /= len(labels)
+        weighted_mean_metric_value = weighted_mean_metric_value_nr / weighted_mean_metric_value_dr
         
     # Prepare a dictionary that contains the average, median, and the metrics for the entire sequence along with their seq_id
     median_metric_value = np.median(list(metric_values_dict.values())) if metric_name != "pearsonr" else np.median([x[0] for x in list(metric_values_dict.values())])
@@ -207,6 +212,7 @@ def within_seq_metric(metric:Union[str, callable], seq_ids:List, labels:List[Lis
         sorted_p_values = sorted([x[1] for x in list(metric_values_dict.values())]) 
         median_p_val = hmean([sorted_p_values[len(sorted_p_values)//2], sorted_p_values[len(sorted_p_values)//2 + 1]]) if len(sorted_p_values)%2 == 0 else sorted_p_values[len(sorted_p_values)//2]
     within_seq_metric_dict = {"mean": mean_metric_value, "median": median_metric_value, "seq_metric_values": metric_values_dict.values(), 'seq_ids': metric_values_dict.keys(), "metric_name": metric_name}
+    if metric_name != "pearsonr": within_seq_metric_dict["weighted_mean"] = weighted_mean_metric_value
     if metric_name == "pearsonr": 
         within_seq_metric_dict["mean_p_value"] = mean_p_values
         within_seq_metric_dict["median_p_value"] = median_p_val

@@ -495,7 +495,7 @@ if __name__ == '__main__':
     
     ###############################
     
-    long_outcomes = long_outcomes.map(lambda x: create_outcomes_mask(x, outcomes_names, infill_method='inter'))
+    long_outcomes = long_outcomes.map(lambda x: create_outcomes_mask(x, outcomes_names, infill_method='prev'))
     print ("Outcomes mask pattern created.")
     
     long_merged_features = merge_features(feature_datasets=[long_sr_features, long_lang_features, long_wtc_pclsubscales], 
@@ -624,6 +624,21 @@ if __name__ == '__main__':
     embs_agg['lang_std'] = np.sqrt(embs_agg['lang_std']/embs_agg['lang_num'] - embs_agg['lang_mean']**2)
     merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: normalize_subscales(x, embs_agg['lang_mean'], embs_agg['lang_std'], 'lang'))
     
+    def add_lastobserved_column(instance, feature_name):
+        time_ids = instance['time_ids']
+        # create a new column lastObserved_featurename which accounts for the number of time_ids since the last observed feature value. 
+        # Use mask_featurename to determine if the current feature value is missing or not.
+        lastObserved_featurename = [1]*len(time_ids)
+        for idx, mask in enumerate(instance['mask_{}'.format(feature_name)]):
+            lastObserved_featurename[idx] = 1 if mask==0 else lastObserved_featurename[idx-1] + 1
+        instance['lastobserved_{}'.format(feature_name)] = lastObserved_featurename
+        return instance        
+    
+    # add last observed columns for each feature: embeddings_subscales, embeddings_lang, embeddings_wtcSubscales
+    merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: add_lastobserved_column(x, 'subscales'))
+    merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: add_lastobserved_column(x, 'lang'))
+    merged_dataset_fulllength = merged_dataset_fulllength.map(lambda x: add_lastobserved_column(x, 'wtcSubscales'))
+    
     # Hierarchical average
     # merged_dataset_trainset = merged_dataset_fulllength.filter(lambda x: x['folds'] != 4).map(compute_mean_std_subscales)
     # avg_avg_subscales, avg_std_subscales = np.mean(merged_dataset_trainset['avg_subscales'], axis=0), np.mean(merged_dataset_trainset['std_subscales'], axis=0)
@@ -638,8 +653,8 @@ if __name__ == '__main__':
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max90days_v6_60combined_5fold_oots')
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots')
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')
-    # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')    
-    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_aheadInterpolated_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')
+    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')    
+    # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_aheadInterpolated_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')
 
     ###############################
     #  Now we create a dev set out of this, by cutting off one fold as the held out sequence and cutting off time points after 60 days as held out time 
@@ -678,6 +693,6 @@ if __name__ == '__main__':
     print (merged_dataset_devset)
     # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots')
     # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')
-    # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')
-    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_aheadInterpolated_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')    
+    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')
+    # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_aheadInterpolated_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')    
     ###############################    

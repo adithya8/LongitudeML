@@ -31,6 +31,18 @@ class PCLSubscaleFormer(nn.Module):
     def forward(self, embeddings_subscales, mask_subscales, **kwargs):
         output = self.pcl_transformer(embeddings=embeddings_subscales, mask=mask_subscales, **kwargs)
         return output
+    
+class PCLSubscalesZFormer(nn.Module):
+    """
+        Transformer that uses subscale embeddings to predict the PCL score.
+    """
+    def __init__(self, pcl_transformer:AutoRegressiveTransformer):
+        super(PCLSubscalesZFormer, self).__init__()
+        self.pcl_transformer = pcl_transformer
+    
+    def forward(self, embeddings_subscales_z, mask_subscales_z, **kwargs):
+        output = self.pcl_transformer(embeddings=embeddings_subscales_z, mask=mask_subscales_z, **kwargs)
+        return output
 
 
 class WTCPCLSubscaleFormer(nn.Module):

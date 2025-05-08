@@ -189,6 +189,14 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
                 batch[k] = batch[k].to(torch.bool)
             elif k == "time_ids":
                 batch[k] = batch[k].to(torch.long)
+        elif k.startswith("lastobserved_"):
+            for feat in features:
+                lastobserved = torch.tensor(feat[k]).clone().detach()
+                if lastobserved.shape[0] < max_seq_len:
+                    pad_values = torch.arange((1, max_seq_len - lastobserved.shape[1] + 1)) + lastobserved[-1]
+                    lastobserved = torch.cat((lastobserved, pad_values), dim=0)
+                feat[k] = lastobserved.reshape(1, -1)
+            batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)             
         elif k=="query_ids":
             batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=-1, batch_first=True)
         elif k=="seq_idx" or k=="seq_id" or k=="ooss_mask":
@@ -197,13 +205,11 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
             pass
             # raise Warning("Key {} not supported for batching. Leaving it out of the dataloaders".format(k))
     if partition == 'train':
-        try:
-            train_len = max([len(feat['oots_mask']) - sum(feat['oots_mask']) for feat in features]) #gets integer cutoff for oots segment, only supports constant oots range
-        except:
-            import pdb; pdb.set_trace()
+        train_len = max([len(feat['oots_mask']) - sum(feat['oots_mask']) for feat in features]) #gets integer cutoff for oots segment, only supports constant oots range
         for k, _ in first.items():
-            if len(batch[k].shape) > 1:
+            if k in batch and len(batch[k].shape) > 1:
                 batch[k] = batch[k][:,:train_len]
+    
     return batch
 
 
@@ -225,7 +231,7 @@ class MIDataLoaderModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         if self.train_dataset is None: return None
-        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=True, collate_fn=self.train_collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=False, collate_fn=self.train_collate_fn)#, num_workers=self.args.num_workers)
 
     def val_dataloader(self):
         if self.val_dataset is None: return None
