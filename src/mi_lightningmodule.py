@@ -15,7 +15,12 @@ class MILightningModule(pl.LightningModule):
         self.args = args
         self.model = model
         self.processor = TimeShiftProcessor(do_shift=args.do_shift, interpolation=args.interpolated_output)
-        
+        if args.max_scheduled_epochs == -1: args.max_scheduled_epochs = args.epochs
+        if args.max_seq_len == -1: args.max_seq_len = args.max_len
+        self.seq_len_scheduler = SequenceLengthScheduler(min_seq_len=args.min_seq_len, max_seq_len=args.max_seq_len, 
+                                                         num_epochs=args.max_scheduled_epochs,
+                                                         scheduler_type=args.seq_len_scheduler_type)
+                
         self.metrics_fns = {}
         if args.num_classes>2:
             self.loss = nn.CrossEntropyLoss(weight=args.cross_entropy_class_weight)
@@ -45,7 +50,8 @@ class MILightningModule(pl.LightningModule):
 
     def configure_optimizers(self) -> Any:
         # return torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
-        return torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
+        # return torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
+        return torch.optim.AdamW(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
     
     
     def unpack_batch_model_inputs(self, batch):
@@ -71,6 +77,8 @@ class MILightningModule(pl.LightningModule):
         # TODO: CHECK IF ALL USERS HAVE ooss==0
         # TODO: CHECK IF ALL TIME POINTS HAVE oots==0
         batch, batch_labels, seq_id = self.unpack_batch_model_inputs(batch)
+        batch['outcomes_mask'] = self.seq_len_scheduler.trim_sequence(outcomes_mask=batch['outcomes_mask'],
+                                                                      current_epoch=self.current_epoch)
         batch_output = self.model(**batch)
         batch_labels_diffed = self.processor.shift_labels(batch_labels)
         # Loss only calculates for the valid timesteps
@@ -519,3 +527,50 @@ class TimeShiftProcessor:
                         import pdb; pdb.set_trace()
         
         return reshifted_output
+    
+    
+class SequenceLengthScheduler:
+    """ Class to schedule the sequence length based on the epoch """
+    def __init__(self, min_seq_len: int, max_seq_len: int, num_epochs: int, scheduler_type: str='linear') -> None:
+        """
+            Args:
+                min_seq_len (int): Minimum sequence length
+                max_seq_len (int): Maximum sequence length
+                num_epochs (int): Number of epochs to train for
+                scheduler_type (str): Type of scheduler to use. Options: 'linear', 'exponential', 'none'
+        """
+        assert min_seq_len > 0, "Minimum sequence length must be greater than 0"
+        assert max_seq_len > min_seq_len, "Maximum sequence length must be greater than minimum sequence length"
+        assert num_epochs > 0, "Number of epochs must be greater than 0"
+        
+        self.max_seq_len = max_seq_len
+        self.min_seq_len = min_seq_len
+        self.num_epochs = num_epochs
+        self.scheduler_type = scheduler_type
+        
+    def get_sequence_length(self, current_epoch:int) -> int:
+        """
+            Get the sequence length based on the current epoch
+            Returns:
+                int: Sequence length
+        """
+        if self.scheduler_type == 'linear':
+            seq_len = int(self.min_seq_len + (self.max_seq_len - self.min_seq_len) * (current_epoch / self.num_epochs))
+        elif self.scheduler_type == 'exponential':
+            seq_len = int(self.min_seq_len * ((self.max_seq_len / self.min_seq_len) ** (current_epoch / self.num_epochs)))
+        else:
+            seq_len = self.max_seq_len  # Default to max_seq_len if unknown scheduler type
+            
+        seq_len = max(self.min_seq_len, min(seq_len, self.max_seq_len))
+        return seq_len
+    
+    def trim_sequence(self, outcomes_mask: torch.Tensor, current_epoch: int) -> torch.Tensor:
+        """
+            Sets outcomes_mask to 0 for timesteps beyond the scheduled sequence length. 
+            outcomes_mask is of the shape (batch_size, seq_len, num_outcomes). Multiplies the outcomes_mask past get_sequence_length by 0. 
+        """
+        
+        seq_len = self.get_sequence_length(current_epoch)
+        if seq_len >= outcomes_mask.shape[1]: return outcomes_mask
+        outcomes_mask[:, seq_len:, :] = 0
+        return outcomes_mask

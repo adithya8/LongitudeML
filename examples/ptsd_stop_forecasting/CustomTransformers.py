@@ -4,7 +4,7 @@ add_to_path(__file__)
 import torch.nn as nn
 import torch
 
-from src import AutoRegressiveTransformer, PositionalEncoding
+from src import AutoRegressiveTransformer, PositionalEncoding, InputEmbeddings
 
 class TotalPCLFormer(nn.Module):
     """
@@ -20,6 +20,20 @@ class TotalPCLFormer(nn.Module):
         return output
 
 
+class TotalPCLZFormer(nn.Module):
+    """
+        Averages the input subscale to form total PCL score before feeding it to the transformer.
+    """
+    def __init__(self, pcl_transformer:AutoRegressiveTransformer):
+        super(TotalPCLZFormer, self).__init__()
+        self.pcl_transformer = pcl_transformer
+    
+    def forward(self, embeddings_subscales_z, mask_subscales, **kwargs):
+        # embeddings_subscales = torch.mean(embeddings_subscales, dim=-1, keepdim=True)
+        output = self.pcl_transformer(embeddings_subscales_z[:, :, :1], mask_subscales, **kwargs)
+        return output
+
+
 class PCLSubscaleFormer(nn.Module):
     """
         Transformer that uses subscale embeddings to predict the PCL score.
@@ -31,6 +45,7 @@ class PCLSubscaleFormer(nn.Module):
     def forward(self, embeddings_subscales, mask_subscales, **kwargs):
         output = self.pcl_transformer(embeddings=embeddings_subscales, mask=mask_subscales, **kwargs)
         return output
+
     
 class PCLSubscalesZFormer(nn.Module):
     """
@@ -40,10 +55,25 @@ class PCLSubscalesZFormer(nn.Module):
         super(PCLSubscalesZFormer, self).__init__()
         self.pcl_transformer = pcl_transformer
     
-    def forward(self, embeddings_subscales_z, mask_subscales_z, **kwargs):
-        output = self.pcl_transformer(embeddings=embeddings_subscales_z, mask=mask_subscales_z, **kwargs)
+    def forward(self, embeddings_subscales_z, mask_subscales, **kwargs):
+        output = self.pcl_transformer(embeddings=embeddings_subscales_z, mask=mask_subscales, **kwargs)
         return output
 
+
+class PCLSubscaleZEmbsFormer(nn.Module):
+    """
+        Transformer using subscales + learned embeddings for the subscales to predict the PCL score.
+    """
+    def __init__(self, pcl_transformer:AutoRegressiveTransformer):
+        super(PCLSubscaleZEmbsFormer, self).__init__()
+        self.input_embeddings = InputEmbeddings(input_size=pcl_transformer.input_size)
+        self.pcl_transformer = pcl_transformer
+    
+    def forward(self, embeddings_subscales_z, mask_subscales, **kwargs):
+        embeddings_subscales_z_shifted = self.input_embeddings(embeddings_subscales_z)
+        output = self.pcl_transformer(embeddings=embeddings_subscales_z_shifted, mask=mask_subscales, **kwargs)
+        return output
+    
 
 class WTCPCLSubscaleFormer(nn.Module):
     """
@@ -68,6 +98,19 @@ class DailyLangFormer(nn.Module):
     
     def forward(self, embeddings_lang, mask_lang, **kwargs):
         output = self.lang_transformer(embeddings=embeddings_lang, mask=mask_lang, **kwargs)
+        return output
+    
+    
+class DailyLangZFormer(nn.Module):
+    """
+        Transformer that uses daily language embeddings to predict the PCL score.
+    """
+    def __init__(self, lang_transformer:AutoRegressiveTransformer):
+        super(DailyLangZFormer, self).__init__()
+        self.lang_transformer = lang_transformer
+    
+    def forward(self, embeddings_lang_z, mask_lang, **kwargs):
+        output = self.lang_transformer(embeddings=embeddings_lang_z, mask=mask_lang, **kwargs)
         return output
     
 
@@ -123,9 +166,13 @@ class projectedSubscaleTransformer(nn.Module):
 
 TRNS_ARCHS = {
     "totalpclformer": TotalPCLFormer,
+    'totalpclzformer': TotalPCLZFormer,
     "wtcpclsubscaleformer": WTCPCLSubscaleFormer,
     "pclsubscaleformer": PCLSubscaleFormer,
+    'pclsubscaleszformer': PCLSubscalesZFormer,
+    'pclsubscalezembsformer': PCLSubscaleZEmbsFormer,
     "dailylangformer": DailyLangFormer,
+    "dailylangzformer": DailyLangZFormer,
     "langsubscaledualcontextformer": LangSubscaleDualContextFormer,
     "lextransformer": LexTransformer,
     "projectedsubscaleformer":projectedSubscaleTransformer,

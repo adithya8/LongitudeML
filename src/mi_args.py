@@ -14,10 +14,10 @@ def get_data_args(parser: argparse.ArgumentParser):
 def get_model_args(parser: argparse.ArgumentParser):
     # model_args: arguments related to model
     parser.add_argument('--model_type', type=str, default='gru',
-                        help='model type (default: gru)', choices=['gru', 'trns', 'custom', 'baseline'])
+                        help='model type (default: gru)', choices=['gru', 'trns', 'custom', 'baseline', 'custom_scratch'])
     parser.add_argument('--custom_model', type=str, default=None)
     parser.add_argument('--input_size', type=int, default=768, #required=True, 
-                        help='size of the embeddings')
+                        help='size of the embeddings') 
     parser.add_argument('--num_classes', type=int, default=1, #required=True,
                         help='number of classes (default: 1)')
     parser.add_argument('--num_outcomes', type=int, default=1, #required=True,
@@ -30,6 +30,8 @@ def get_model_args(parser: argparse.ArgumentParser):
                         help='dropout (default: 0.10)')
     parser.add_argument('--output_dropout', type=float, default=0.10,
                         help='output layer dropout (default: 0.10)')
+    parser.add_argument('--positional_encoding_type', type=str, default='none',
+                        help='positional encoding type (default: none)', choices=['none', 'sinusoidal', 'learned', 'rope'])
     parser.add_argument('--bidirectional', action='store_true', default=False,
                         help='bidirectional (default: False)')
     parser.add_argument('--num_heads', type=int, default=2,
@@ -62,16 +64,28 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='class weight for cross entropy loss (default: None)')
     parser.add_argument('--loss_reduction', type=str, default='flatten', choices=['within-seq', 'flatten', 'none'],
                         help='Loss reduction strategy (default: flatten)')
+    # Args for turning sequence prediction into change prediction
     parser.add_argument('--do_shift', action='store_true', default=False,
                         help='Predict the change instead of the absolute value (default: False)')
     parser.add_argument('--interpolated_output', action='store_true', default=False,
                         help='The output has been linearly interpolated (default: False)')
+    # Args for sequence length scheduling
+    parser.add_argument('--seq_len_scheduler_type', type=str, default='none',
+                        help='Sequence length scheduler type (default: none)', choices=['none', 'linear', 'exponential'])
+    parser.add_argument('--min_seq_len', type=int, default=10,
+                        help='Minimum sequence length for training (default: 10)')
+    parser.add_argument('--max_seq_len', type=int, default=-1,
+                        help='Maximum sequence length for training (default: -1, same as max_len)')
+    parser.add_argument('--max_scheduled_epochs', type=int, default=-1,
+                        help='Maximum number of epochs for the sequence length scheduler (default: -1, same as max_epochs)')
+    # Args for logging and saving 
     parser.add_argument('--log_interval', type=int, default=10,
                         help='logging interval (default: 10)')
     parser.add_argument('--save_strategy', type=str, default='best',
                         help='model save strategy (default: best)', choices=['best', 'all'])
     parser.add_argument('--save_dir', type=str, default=None,
                         help='model save directory (default: saved_models)')
+    # Hyperparameter Args
     parser.add_argument('--lr', type=float, default=0.001,
                         help='learning rate (default: 0.001)')
     parser.add_argument('--weight_decay', type=float, default=0.0,

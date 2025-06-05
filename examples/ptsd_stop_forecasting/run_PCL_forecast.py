@@ -18,10 +18,12 @@ from src import (
     get_datasetDict, create_mask, MIDataLoaderModule,
     MILightningModule, recurrent, AutoRegressiveTransformer, PositionalEncoding,
     AutoRegressiveLinear, AutoRegressiveLinear2,
+    TransformerModel
 )
 
 from CustomTransformers import TRNS_ARCHS      
 from BaselineModels import BSLN_ARCHS
+from CustomScratchTransformers import SCTRNS_ARCH
 
 if __name__ == '__main__':
     
@@ -59,21 +61,28 @@ if __name__ == '__main__':
             subscalesLinear = BSLN_ARCHS['linear_subscales'](input_size=5, output_size=args.num_outcomes)
             langLinear = BSLN_ARCHS['linear'](input_size=args.input_size, output_size=args.num_outcomes)
             model = BSLN_ARCHS[args.custom_model](subscalesLinear, langLinear)
-        elif args.custom_model in ['last_n_pcl_mean', 'ar_subscale', 'ar_subscale_z', 'ar_pcl', 'ar_pcl_z',  'ar_subscale_lang_cat', 'ar_subscale_z_lang_z_cat', 
-                                   'ar_subscale_z_missing', 'ar_subscale_z_lastobserved']:
+        elif args.custom_model in ['last_n_pcl_mean', 'ar_subscale', 'ar_subscale_z', 'ar_pcl', 'ar_pcl_z',  'ar_pcl_z_missing', 'ar_subscale_lang_cat', 'ar_subscale_z_lang_z_cat', 
+                                   'ar_subscale_z_missing', 'ar_subscale_z_lastobserved', 'ar_subscale_missing']:
             subscaleAR = AutoRegressiveLinear2(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                          num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                          max_len=args.max_len)
             model = BSLN_ARCHS[args.custom_model](subscaleAR)
-        elif args.custom_model in ['ar_subscale_lang', 'ar_subscale_z_lang', 'ar_subscale_z_lang_z']:
-            subscaleAR = AutoRegressiveLinear(input_size=5, hidden_size=args.hidden_size, num_classes=args.num_classes,
+        elif args.custom_model in ['ar_lang_z']:
+            langAR = AutoRegressiveLinear2(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
+                                         num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
+                                         max_len=args.max_len)
+            model = BSLN_ARCHS[args.custom_model](langAR)
+        elif args.custom_model in ['ar_pcl_z_lang_z', 'ar_subscale_lang', 'ar_subscale_z_lang', 'ar_subscale_z_lang_z', 'ar_subscale_missing_lang_missing']:
+            subscaleAR = AutoRegressiveLinear2(input_size=5, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                             num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                             max_len=args.max_len)
             if args.subscale_weights_path is not None:
                 subscaleAR_weights = torch.load(args.subscale_weights_path)
-                subscaleAR.model[0].weight.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.model.0.weight']
-                subscaleAR.model[0].bias.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.model.0.bias']
-            langAR = AutoRegressiveLinear(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
+                subscaleAR.linear.weight.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.linear.weight']
+                subscaleAR.linear.bias.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.linear.bias']
+                # subscaleAR.model[0].weight.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.model.0.weight']
+                # subscaleAR.model[0].bias.data = subscaleAR_weights['state_dict']['model.subscaleAR_model.model.0.bias']
+            langAR = AutoRegressiveLinear2(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                             num_outcomes=args.num_outcomes, num_layers=args.num_layers, output_dropout=args.output_dropout,
                                             max_len=args.max_len)
             if args.lang_weights_path is not None:
@@ -118,15 +127,28 @@ if __name__ == '__main__':
                                 bidirectional=args.bidirectional, num_heads=1, max_len=args.max_len
                                 )
             model = TRNS_ARCHS[args.custom_model](lang_model, subscales_model)
-        elif args.custom_model in ['dailylangformer', 'pclsubscaleformer', 'totalpclformer', 'lextransformer', 'wtcpclsubscaleformer']:
+        elif args.custom_model in ['dailylangformer', 'dailylangzformer', 'pclsubscaleformer', 'pclsubscaleszformer', 'pclsubscalezembsformer', 
+                                   'totalpclformer', 'totalpclzformer', 'lextransformer', 'wtcpclsubscaleformer']:
             pcl_model = AutoRegressiveTransformer(input_size=args.input_size, hidden_size=args.hidden_size, num_classes=args.num_classes,
                                 num_outcomes=args.num_outcomes, num_layers=args.num_layers,
                                 dropout=args.dropout, output_dropout=args.output_dropout,
-                                bidirectional=args.bidirectional, num_heads=args.num_heads, max_len=args.max_len
+                                bidirectional=args.bidirectional, num_heads=args.num_heads, max_len=args.max_len, 
+                                positional_encoding_type=args.positional_encoding_type
                                 )
             model = TRNS_ARCHS[args.custom_model](pcl_model)
         else:
-            raise ValueError('Invalid custom model: {}'.format(args.custom_model))        
+            raise ValueError('Invalid custom model: {}'.format(args.custom_model))
+    elif args.model_type == 'custom_scratch':
+        if args.custom_model in ['dailylangzformer']:
+            lang_model = TransformerModel(input_dim=args.input_size, num_classes=args.num_classes,
+                                num_outcomes=args.num_outcomes, num_layers=args.num_layers,
+                                dropout=args.dropout, output_dropout=args.output_dropout,
+                                num_heads=args.num_heads, max_len=args.max_len,
+                                positional_encoding=args.positional_encoding_type
+                                )
+            model = SCTRNS_ARCH[args.custom_model](lang_model)
+        else:
+            raise ValueError('Invalid custom scratch model: {}'.format(args.custom_model))
         
     # callbacks=[pl.callbacks.EarlyStopping(monitor="val_loss", patience=args.early_stopping_patience, 
                                         # mode=args.early_stopping_mode, min_delta=args.early_stopping_min_delta)] if args.early_stopping_patience>0 else []

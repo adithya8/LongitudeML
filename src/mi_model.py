@@ -126,6 +126,7 @@ class SinusoidalPositionalEncoding(nn.Module):
         position = torch.arange(0, self.max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, self.d_model, 2)/self.d_model*(-math.log(10000.0)))
         pe[:, 0::2] = torch.sin(position*div_term)
+        if self.d_model%2 != 0: div_term = div_term[:-1] # For odd feature dim
         pe[:, 1::2] = torch.cos(position*div_term)
         self.register_buffer('pe', pe)
         
@@ -139,13 +140,41 @@ class SinusoidalPositionalEncoding(nn.Module):
                 x[:, i:i+self.max_len] = x[:, i:i+self.max_len] + self.pe[:x.shape[1]-i]
         return x
 
+
+class InputEmbeddings(nn.Module):
+    """
+        Creates an input embedding layer for the input features.
+    """
+    def __init__(self, input_size:int, initialization:str='xavier'):
+        super(InputEmbeddings, self).__init__()
+        self.input_size = input_size
+        self.initialization = initialization
+        self.init_model()
     
+    def init_model(self):
+        self.W = nn.Parameter(torch.Tensor(self.input_size))
+        # initialize the weights with 1
+        nn.init.uniform_(self.W, 1.0, 1.0)
+        # nn.init.xavier_uniform_(self.W)
+    
+    def forward(self, x):
+        """
+            x: (batch_size, seq_len, input_size)
+        """
+        # Multiply x with W to get the embeddings
+        x = x * self.W
+        # Reshape x to (batch_size, seq_len, embedding_size)
+        # x = x.view(x.shape[0], x.shape[1], self.input_size)
+        return x
+
+
 class AutoRegressiveTransformer(nn.Module):
     """
         
     """
     def __init__(self, input_size:int, hidden_size:int, num_classes:int, num_outcomes:int=1, num_layers:int=1, 
-                 dropout:float=0.0, bidirectional:bool=False, output_dropout:float=0.0, num_heads:int=4, max_len:int=120):
+                 dropout:float=0.0, bidirectional:bool=False, output_dropout:float=0.0, num_heads:int=4, max_len:int=120,
+                 positional_encoding_type:str=None, ):
         super(AutoRegressiveTransformer, self).__init__()
         
         self.input_size = input_size
@@ -158,6 +187,7 @@ class AutoRegressiveTransformer(nn.Module):
         self.num_outcomes = num_outcomes
         self.num_heads = num_heads
         self.max_len = max_len
+        self.positional_encoding_type = positional_encoding_type
         self.init_model()
     
     def init_model(self):
@@ -166,8 +196,15 @@ class AutoRegressiveTransformer(nn.Module):
         # Perform Xavier initialization for the infill_embeddings.
         # std = gain * sqrt(2.0 / (fan_in + fan_out)); gain = 1.0, fan_in = 1, fan_out = self.input_size
         #std = 1.0 * (2.0 / (1 + self.input_size))**0.5
-        #self.infill_embeddings = nn.Parameter(torch.normal(0, std**2, (self.input_size,)))        
-        # self.positional_encoding = PositionalEncoding(self.input_size, self.max_len)
+        #self.infill_embeddings = nn.Parameter(torch.normal(0, std**2, (self.input_size,)))
+        if self.positional_encoding_type == 'none':
+            self.positional_encoding = None
+        elif self.positional_encoding_type == 'learned': 
+            self.positional_encoding = PositionalEncoding(self.input_size, self.max_len)
+        elif self.positional_encoding_type == 'sinusoidal':
+            self.positional_encoding = SinusoidalPositionalEncoding(self.input_size, self.max_len)
+        else:
+            print ("WARNING: {} positional encoding not used. Defaulting to No Positional Encoding!!!".format(self.positional_encoding_type))
         self.output_dropout_layer = nn.Dropout(self.output_dropout)
         # self.ln = nn.LayerNorm(self.input_size) # layernorm is already present in the TransformerEncoderLayer
         
@@ -196,12 +233,12 @@ class AutoRegressiveTransformer(nn.Module):
             assert mask.shape == torch.Size(embeddings.shape[:2]), "Mask shape should be (batch_size, seq_len). Got {} for mask and {} for embeddings".format(mask.shape, embeddings.shape)
 
         # Create infill mask first. Set to true for timesteps that were infilled whicch are timesteps with time_id != -1 and mask == 1. Else set to False. Create it in the same device as the embeddings
-        infill_mask = torch.where((kwargs['time_ids']!=-1) & mask, True, False).to(embeddings.device)
+        # infill_mask = torch.where((kwargs['time_ids']!=-1) & mask, True, False).to(embeddings.device)
         # adding infill_embeddings whereever the mask is True
 
         output_rep = embeddings #+ (infill_mask.unsqueeze(-1)*self.infill_embeddings)
         # adding positional encoding to the embeddings
-        # output_rep = self.positional_encoding(embeddings)
+        if self.positional_encoding_type != 'none': output_rep = self.positional_encoding(embeddings)
         # src_key_padding_mask only to mask out the padded tokens, i.e., timestep with time_ids = -1. 
         # Boolean src_key_padding_mask uses True to mask out the padded tokens. Floating uses -inf to mask out the padded tokens and 0.0 to keep the valid tokens.
         src_key_padding_mask_bool = torch.where(kwargs['time_ids']==-1, True, False)        
