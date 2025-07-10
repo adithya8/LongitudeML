@@ -4,7 +4,7 @@ add_to_path(__file__)
 import torch.nn as nn
 import torch
 
-from src import AutoRegressiveLinear, AutoRegressiveLinear2
+from src import AutoRegressiveLinear, AutoRegressiveLinear2, BoELinear
 
 # NOTE: Add the class to the BSLN_ARCHS dictionary at the bottom of the file.
 
@@ -116,11 +116,16 @@ class LastNPCLMean(nn.Module):
         # output.requires_grad = True
         return output
 
-# class BoERidge(nn.Module):
-#     """ Linear Regression on Bag of Embeddings """
-#     def __init__(self, linearmodel: LinearRegression):
-#         super(BoERidge, self).__init__()
-#         self.linear = linearmodel
+
+class BoELangZ(nn.Module):
+    """ Bag of Embeddings Language Model with Z-scores """
+    def __init__(self, model:BoELinear):
+        super(BoELangZ, self).__init__()
+        self.model = model
+    
+    def forward(self, embeddings_lang_z, mask_lang, **kwargs):
+        output = self.model(embeddings_lang_z, mask_lang, **kwargs)
+        return output
         
 
 class ARSubscale(nn.Module):
@@ -451,6 +456,7 @@ BSLN_ARCHS = {
     'linear_subscales_lang': LinearRegressionSubscalesLang,
     'linear_subscales_z': LinearRegressionSubscalesZ,
     'last_n_pcl_mean': LastNPCLMean,
+    'boe_lang_z': BoELangZ,
     'ar_subscale': ARSubscale,
     'ar_subscale_z': ARSubscaleZ,
     'ar_pcl': ARPCL,
