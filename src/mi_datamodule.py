@@ -192,7 +192,7 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
         elif k.startswith("lastobserved_"):
             for feat in features:
                 lastobserved = torch.tensor(feat[k]).clone().detach()
-                if lastobserved.shape[0] < max_seq_len:
+                if lastobserved.shape[0] < max_seq_len: # TODO: There is a bug here with shape of lastobserved. Fix it
                     pad_values = torch.arange((1, max_seq_len - lastobserved.shape[1] + 1)) + lastobserved[-1]
                     lastobserved = torch.cat((lastobserved, pad_values), dim=0)
                 feat[k] = lastobserved.reshape(1, -1)
@@ -217,7 +217,7 @@ class MIDataLoaderModule(pl.LightningDataModule):
     """
         Data loader module for MI. Takes the MI dataset as input.
     """
-    def __init__(self, data_args, datasets: Dict[str, Any]):
+    def __init__(self, data_args, datasets: Dict[str, Any], partion_processing=True):
         super().__init__()
         self.args = data_args
         self.train_dataset = datasets.pop('train', None)
@@ -225,22 +225,31 @@ class MIDataLoaderModule(pl.LightningDataModule):
         self.test_dataset = datasets.pop('test', None)
         self.predict_dataset = datasets.pop('predict', None)
         print ('Predict Last Valid Timestep set to {}'.format(data_args.predict_last_valid_timestep))
-        self.train_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="train") # NOTE: Either change to class method or use partial in case more args are needed
-        self.val_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="val")
-        self.test_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="test")
+        if partion_processing:
+            self.train_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="train") # NOTE: Either change to class method or use partial in case more args are needed
+            self.val_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="val")
+            self.test_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="test")
+        else:
+            self.train_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="val")
+            self.val_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="val")
+            self.test_collate_fn = lambda b: default_collate_fn(b, predict_last_valid_timestep=data_args.predict_last_valid_timestep, partition="val")
 
     def train_dataloader(self):
         if self.train_dataset is None: return None
-        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=False, collate_fn=self.train_collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=False, collate_fn=self.train_collate_fn,
+                          pin_memory=True)#, num_workers=self.args.num_workers)
 
     def val_dataloader(self):
         if self.val_dataset is None: return None
-        return DataLoader(self.val_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.val_collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.val_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.val_collate_fn,
+                          pin_memory=True)#, num_workers=self.args.num_workers)
 
     def test_dataloader(self):
         if self.test_dataset is None: return None
-        return DataLoader(self.test_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn)#, num_workers=self.args.num_workers)
+        return DataLoader(self.test_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn,
+                          pin_memory=True)#, num_workers=self.args.num_workers)
 
     def predict_dataloader(self):
         if self.predict_dataset is None: return None
-        return DataLoader(self.predict_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn)#, num_workers=self.args.num_workers,
+        return DataLoader(self.predict_dataset, batch_size=self.args.val_batch_size, shuffle=False, collate_fn=self.test_collate_fn,
+                          pin_memory=True)#, num_workers=self.args.num_workers,

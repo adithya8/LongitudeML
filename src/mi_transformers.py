@@ -117,8 +117,8 @@ class RotaryPositionalEmbeddings(nn.Module):
         TODO: The implementation below can be made more efficient
         for inference.
         """
-        # input tensor has shape [b, s, n_h, h_d]
-        seq_len = x.size(1)
+        # input tensor has shape [b, n_h, s, h_d]
+        seq_len = x.size(2)
 
         # extract the values based on whether input_pos is set or not
         rope_cache = (
@@ -127,13 +127,13 @@ class RotaryPositionalEmbeddings(nn.Module):
 
         # reshape input; the last dimension is used for computing the output.
         # Cast to float to match the reference implementation
-        # tensor has shape [b, s, n_h, h_d // 2, 2]
+        # tensor has shape [b, n_h, s, h_d // 2, 2]
         xshaped = x.float().reshape(*x.shape[:-1], -1, 2)
 
         # reshape the cache for broadcasting
-        # tensor has shape [b, s, 1, h_d // 2, 2] if packed samples,
-        # otherwise has shape [1, s, 1, h_d // 2, 2]
-        rope_cache = rope_cache.view(-1, xshaped.size(1), 1, xshaped.size(3), 2)
+        # tensor has shape [b, 1, s, h_d // 2, 2] if packed samples,
+        # otherwise has shape [1, 1, s, h_d // 2, 2]
+        rope_cache = rope_cache.view(-1, 1, seq_len, xshaped.size(3), 2)
 
         # tensor has shape [b, s, n_h, h_d // 2, 2]
         x_out = torch.stack(
@@ -159,9 +159,9 @@ class MultiHeadedSelfAttention(nn.Module):
         self.head_dim = dim // num_heads
         self.scale = self.head_dim ** -0.5
         
-        self.q_proj = nn.Linear(dim, dim)
-        self.k_proj = nn.Linear(dim, dim)
-        self.v_proj = nn.Linear(dim, dim)        
+        self.q_proj = nn.Linear(dim, self.head_dim * num_heads)
+        self.k_proj = nn.Linear(dim, self.head_dim * num_heads)
+        self.v_proj = nn.Linear(dim, self.head_dim * num_heads)
         self.relative_emb = relative_emb
         
         self.sm = nn.Softmax(dim=-1)
@@ -236,10 +236,10 @@ class MultiHeadedSelfAttention(nn.Module):
         k = self.k_proj(x)
         v = self.v_proj(x)
         
-        if h_dim % self.num_heads != 0:
-            q = torch.cat([q, self._zero_pad.expand(bsz, seq_len, -1)], dim=-1)
-            k = torch.cat([k, self._zero_pad.expand(bsz, seq_len, -1)], dim=-1)
-            v = torch.cat([v, self._zero_pad.expand(bsz, seq_len, -1)], dim=-1)
+        # if h_dim % self.num_heads != 0:
+        #     q = torch.cat([q, self._zero_pad.expand(bsz, seq_len, -1)], dim=-1)
+        #     k = torch.cat([k, self._zero_pad.expand(bsz, seq_len, -1)], dim=-1)
+        #     v = torch.cat([v, self._zero_pad.expand(bsz, seq_len, -1)], dim=-1)
                      
         # Reshape to (batch_size, num_heads, seq_len, head_dim)
         q = q.view(bsz, seq_len, self.num_heads, -1).transpose(1, 2)
@@ -257,7 +257,7 @@ class MultiHeadedSelfAttention(nn.Module):
 # Classical Transformer block implementation from the paper "Attention is All You Need" (Vaswani et al., 2017)
 # https://arxiv.org/abs/1706.03762
 class TransformerBlock(nn.Module):
-    def __init__(self, dim, num_heads, dropout:float=0.0, rotary_emb=None, activation:str='relu'):
+    def __init__(self, dim, num_heads, dropout:float=0.0, rotary_emb=None, activation:str='relu', pre_ln:bool=False):
         super(TransformerBlock, self).__init__()
         self.dim = dim
         self.num_heads = num_heads
@@ -265,7 +265,7 @@ class TransformerBlock(nn.Module):
 
         self.ln1 = nn.LayerNorm(dim, elementwise_affine=True)
         self.attn = MultiHeadedSelfAttention(dim, num_heads, dropout, rotary_emb)
-        self.out_proj = nn.Linear(dim, dim)
+        self.out_proj = nn.Linear(self.head_dim * self.num_heads, dim)
         self.ln2 = nn.LayerNorm(dim, elementwise_affine=True)
         
         self.mlp_in = nn.Linear(dim, dim)
@@ -273,8 +273,25 @@ class TransformerBlock(nn.Module):
         self.dropout1 = nn.Dropout(dropout)
         self.mlp_out = nn.Linear(dim, dim)
         self.dropout2 = nn.Dropout(dropout)
-        self.pre_ln = False # Set to True for pre-layer normalization, False for post-layer normalization. Vaswani used post-layer normalization.
-        
+        self.pre_ln = pre_ln # Set to True for pre-layer normalization, False for post-layer normalization. Vaswani used post-layer normalization.
+        self.init_model()
+    
+    def init_model(self):
+        # init layers with xavier uniform initialization
+        nn.init.xavier_uniform_(self.attn.q_proj.weight)
+        nn.init.xavier_uniform_(self.attn.k_proj.weight)
+        nn.init.xavier_uniform_(self.attn.v_proj.weight)
+        nn.init.xavier_uniform_(self.out_proj.weight)
+        nn.init.xavier_uniform_(self.mlp_in.weight)
+        nn.init.xavier_uniform_(self.mlp_out.weight)
+        nn.init.constant_(self.ln1.bias, 0.0)
+        nn.init.constant_(self.ln2.bias, 0.0)
+        nn.init.constant_(self.attn.q_proj.bias, 0.0)
+        nn.init.constant_(self.attn.k_proj.bias, 0.0)
+        nn.init.constant_(self.attn.v_proj.bias, 0.0)
+        nn.init.constant_(self.out_proj.bias, 0.0)
+        nn.init.constant_(self.mlp_in.bias, 0.0)
+        nn.init.constant_(self.mlp_out.bias, 0.0)
         
     def forward(self, x, attn_mask=None, is_causal:bool=False, key_padding_mask=None):
         """
@@ -287,9 +304,6 @@ class TransformerBlock(nn.Module):
         Returns:
             torch.Tensor: Output tensor of shape (batch_size, seq_len, dim).
         """
-        # bsz, seq_len, h_dim = x.size()
-        
-        # Post_ln
         if self.pre_ln:
             # Layer normalization 1
             x_ln = self.ln1(x)
@@ -305,7 +319,6 @@ class TransformerBlock(nn.Module):
             z = z + out
         else:        
             # Multi-headed self-attention
-            # import pdb; pdb.set_trace()
             attn_out = self.attn(x, attn_mask=attn_mask,
                                     is_causal=is_causal, key_padding_mask=key_padding_mask)
             out = self.out_proj(attn_out) + x
@@ -337,6 +350,15 @@ class ParallelTransformerBlock(nn.Module):
         self.mlp_in = nn.Linear(dim, dim)
         self.activation = nn.ReLU() if activation == 'relu' else nn.GELU() if activation == 'gelu' else nn.Identity()
         self.mlp_out = nn.Linear(dim, dim)
+        self.init_model()
+        
+    def init_model(self):
+        # init layers with xavier uniform initialization
+        nn.init.xavier_uniform_(self.mlp_in.weight)
+        nn.init.xavier_uniform_(self.mlp_out.weight)
+        nn.init.constant_(self.ln1.bias, 0.0)
+        nn.init.constant_(self.mlp_in.bias, 0.0)
+        nn.init.constant_(self.mlp_out.bias, 0.0)
         
     def forward(self, x, attn_mask=None, is_causal:bool=False, key_padding_mask=None):
         """
@@ -367,21 +389,38 @@ class ParallelTransformerBlock(nn.Module):
 
 
 class RoPETransformerModel(nn.Module):
-    def __init__(self, input_dim:int , num_heads:int , num_layers:int , output_classes:int , 
+    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, num_outcomes:int=1, pre_ln:bool=False, 
                  dropout:float=0.0, output_dropout:float=0.0, max_seq_len:int=512):
         super(RoPETransformerModel, self).__init__()
         self.rotary_emb_obj = RotaryPositionalEmbeddings(dim=input_dim//num_heads, max_seq_len=max_seq_len)
         self.layers = nn.ModuleList([
-            TransformerBlock(input_dim, num_heads, dropout, self.rotary_emb_obj) for _ in range(num_layers)
+            TransformerBlock(dim=input_dim, num_heads=num_heads, dropout=dropout, rotary_emb=self.rotary_emb_obj, pre_ln=pre_ln) for _ in range(num_layers)
         ])
-        self.fc_out = nn.Linear(input_dim, output_classes)
+        self.fc_out = nn.Linear(input_dim, num_classes * num_outcomes)
         self.op_dropout = nn.Dropout(output_dropout)
         self.max_seq_len = max_seq_len
 
     def forward(self, embeddings, mask=None, **kwargs):
+        # src_key_padding_mask only to mask out the padded tokens, i.e., timestep with time_ids = -1. 
+        # Boolean src_key_padding_mask uses True to mask out the padded tokens. 
+        key_padding_mask = torch.where(kwargs['time_ids']==-1, True, False)
+        # Turn the mask into sq matrix of shape (batch_size, 1, seq_len, seq_len)
+        # src_key_padding_mask_sq = src_key_padding_mask_float.unsqueeze(-1) @ src_key_padding_mask_float.unsqueeze(-1).transpose(-1, -2)
+        # src_key_padding_mask_sq = torch.where(src_key_padding_mask_sq==0.0, float('-inf'), 0.0)
+        
+        # Generate a square mask for the transformer. This should be of size (seq_len, seq_len)
+        # This mask is used to mask out the future tokens in the sequence.  
+        # For float -inf is used to mask out the future tokens, 0s are used to keep the present and past tokens.
+        causal_mask = ~torch.tril(torch.ones(embeddings.shape[1], embeddings.shape[1], device=embeddings.device)).bool()
+        causal_mask = torch.where(causal_mask, float('-inf'), 0.0)
+        causal_mask = causal_mask.unsqueeze(0).unsqueeze(1).expand(embeddings.shape[0], -1, -1, -1)
+ 
+        # src_key_padding_mask_sq = src_key_padding_mask_sq + causal_mask.unsqueeze(0).expand(embeddings.shape[0], -1, -1)
+        # src_key_padding_mask_sq = src_key_padding_mask_sq.unsqueeze(1)  # Add a dimension for heads
         x = embeddings
         for layer in self.layers:
-            x = layer(x, mask)
+            x = layer(x, attn_mask=causal_mask, 
+                      is_causal=True, key_padding_mask=key_padding_mask)
         
         x = self.op_dropout(x)
         x = self.fc_out(x)
@@ -390,11 +429,11 @@ class RoPETransformerModel(nn.Module):
     
 class SinusoidalTransformerModel(nn.Module):
     def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, num_outcomes:int=1, 
-                 dropout:float=0.0, output_dropout:float=0.0, max_len:int=512):
+                 dropout:float=0.0, output_dropout:float=0.0, max_len:int=512, pre_ln:bool=False):
         super(SinusoidalTransformerModel, self).__init__()
         self.positional_encoding = SinusoidalPositionalEncoding(input_dim, max_len)
         self.layers = nn.ModuleList([
-            TransformerBlock(input_dim, num_heads, dropout) for _ in range(num_layers)
+            TransformerBlock(dim=input_dim, num_heads=num_heads, dropout=dropout, pre_ln=pre_ln) for _ in range(num_layers)
         ])
         self.fc_out = nn.Linear(input_dim, num_classes * num_outcomes)  
         self.op_dropout = nn.Dropout(output_dropout)
@@ -418,8 +457,7 @@ class SinusoidalTransformerModel(nn.Module):
  
         # src_key_padding_mask_sq = src_key_padding_mask_sq + causal_mask.unsqueeze(0).expand(embeddings.shape[0], -1, -1)
         # src_key_padding_mask_sq = src_key_padding_mask_sq.unsqueeze(1)  # Add a dimension for heads
-        
-        # import pdb; pdb.set_trace()
+
         x = self.positional_encoding(embeddings)
         for layer in self.layers:
             x = layer(x, attn_mask=causal_mask, 
@@ -431,37 +469,59 @@ class SinusoidalTransformerModel(nn.Module):
 
 
 class NoPositionalTransformerModel(nn.Module):
-    def __init__(self, input_dim:int , num_heads:int , num_layers:int , output_classes:int , 
+    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, num_outcomes:int=1, pre_ln:bool=False, 
                  dropout:float=0.0, output_dropout:float=0.0):
         super(NoPositionalTransformerModel, self).__init__()
         self.layers = nn.ModuleList([
-            TransformerBlock(input_dim, num_heads, dropout) for _ in range(num_layers)
+            TransformerBlock(dim=input_dim, num_heads=num_heads, dropout=dropout, pre_ln=pre_ln) for _ in range(num_layers)
         ])
-        self.fc_out = nn.Linear(input_dim, output_classes)
+        self.fc_out = nn.Linear(input_dim, num_classes * num_outcomes)
         self.op_dropout = nn.Dropout(output_dropout)
 
-    def forward(self, x, mask=None):
+    def forward(self, embeddings, mask=None, **kwargs):
+        # src_key_padding_mask only to mask out the padded tokens, i.e., timestep with time_ids = -1. 
+        # Boolean src_key_padding_mask uses True to mask out the padded tokens. 
+        key_padding_mask = torch.where(kwargs['time_ids']==-1, True, False)
+        # Turn the mask into sq matrix of shape (batch_size, 1, seq_len, seq_len)
+        # src_key_padding_mask_sq = src_key_padding_mask_float.unsqueeze(-1) @ src_key_padding_mask_float.unsqueeze(-1).transpose(-1, -2)
+        # src_key_padding_mask_sq = torch.where(src_key_padding_mask_sq==0.0, float('-inf'), 0.0)
+        
+        # Generate a square mask for the transformer. This should be of size (seq_len, seq_len)
+        # This mask is used to mask out the future tokens in the sequence.  
+        # For float -inf is used to mask out the future tokens, 0s are used to keep the present and past tokens.
+        causal_mask = ~torch.tril(torch.ones(embeddings.shape[1], embeddings.shape[1], device=embeddings.device)).bool()
+        causal_mask = torch.where(causal_mask, float('-inf'), 0.0)
+        causal_mask = causal_mask.unsqueeze(0).unsqueeze(1).expand(embeddings.shape[0], -1, -1, -1)
+ 
+        # src_key_padding_mask_sq = src_key_padding_mask_sq + causal_mask.unsqueeze(0).expand(embeddings.shape[0], -1, -1)
+        # src_key_padding_mask_sq = src_key_padding_mask_sq.unsqueeze(1)  # Add a dimension for heads
+        x = embeddings
         for layer in self.layers:
-            x = layer(x, mask)
+            x = layer(x, attn_mask=causal_mask, 
+                      is_causal=True, key_padding_mask=key_padding_mask)
         
         x = self.op_dropout(x)
-        x = self.fc_out(x)
-        return x
-
+        y = self.fc_out(x)
+        return y
+    
     
 class TransformerModel(nn.Module):
     def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int , num_outcomes:int=1,
                  dropout:float=0.0, output_dropout:float=0.0, max_len:int=512, 
-                 positional_encoding:str='sinusoidal'):
+                 positional_encoding:str='sinusoidal', pre_ln:bool=False):
         super(TransformerModel, self).__init__()
         if positional_encoding == 'sinusoidal':
             self.model = SinusoidalTransformerModel(input_dim=input_dim, num_heads=num_heads, num_layers=num_layers, 
                                                     num_classes=num_classes, num_outcomes=num_outcomes, dropout=dropout, 
-                                                    output_dropout=output_dropout, max_len=max_len)
+                                                    output_dropout=output_dropout, max_len=max_len, pre_ln=pre_ln)
         elif positional_encoding == 'rope':
-            self.model = RoPETransformerModel(input_dim, num_heads, num_layers, num_classes, dropout, output_dropout, max_len)
+            self.model = RoPETransformerModel(input_dim=input_dim, num_heads=num_heads, num_layers=num_layers,
+                                              num_classes=num_classes, num_outcomes=num_outcomes, dropout=dropout, 
+                                              output_dropout=output_dropout, max_seq_len=max_len, pre_ln=pre_ln) 
         elif positional_encoding == 'none':
-            self.model = NoPositionalTransformerModel(input_dim, num_heads, num_layers, num_classes, output_dropout, dropout)
+            self.model = NoPositionalTransformerModel(input_dim=input_dim, num_heads=num_heads, num_layers=num_layers, 
+                                                      num_classes=num_classes, num_outcomes=num_outcomes, dropout=dropout, 
+                                                      output_dropout=output_dropout, pre_ln=pre_ln)
         else:
             raise ValueError(f"Unknown positional encoding type: {positional_encoding}. Choose from 'sinusoidal', 'rope', or 'none'.")
         

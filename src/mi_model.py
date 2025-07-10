@@ -389,3 +389,75 @@ class AutoRegressiveLinear2(nn.Module):
         #     output = output[torch.arange(batch_size), idx]  # Shape: (batch_size, num_classes * num_outcomes)
         
         return output
+    
+
+class BoELinear(nn.Module):
+    """
+        A simple linear model for Bag of Embeddings (BoE) approach.
+        This model takes the mean of the embeddings and applies a linear layer.
+    """
+    def __init__(self, input_size:int, num_classes:int, num_outcomes:int=1, output_dropout:float=0.0, 
+                 max_len:int=1, **kwargs):
+        super(BoELinear, self).__init__()
+        
+        self.input_size = input_size
+        self.num_classes = num_classes
+        self.num_outcomes = num_outcomes
+        self.output_dropout = output_dropout
+        self.max_len = max_len
+        self.padding_len = self.max_len - 1  # Padding length for causal sliding
+        self.model_init()
+        print (self)
+        
+    def model_init(self):
+        
+        if self.num_classes <= 2:  # For binary classification or regression, we need only one output node
+            self.linear = nn.Linear(self.input_size, 1 * self.num_outcomes, bias=True)
+        else:
+            self.linear = nn.Linear(self.input_size, self.num_classes * self.num_outcomes, bias=True)
+        self.output_dropout_layer = nn.Dropout(self.output_dropout)
+        # Initialize weights
+    
+    def forward(self, embeddings, mask=None, predict_last_valid_hidden_state=True, **kwargs):
+        """
+        embeddings: (batch_size, seq_len, input_size)
+        mask: (batch_size, seq_len) of type bool. If mask = 1, the query was padded and should not be used for attention. If mask = 0, the query is valid and should be used for attention.
+        predict_last_valid_hidden_state: If True, the last valid timestep's hidden state from each instance is used for prediction. Else, all timesteps' hidden states are predicted.
+        """
+        batch_size, seq_len, input_size = embeddings.shape 
+        assert input_size == self.input_size, "Input size mismatch. Expected {}, got {}".format(self.input_size, input_size)
+        
+        # Pad the input on the left for causal sliding
+        if self.padding_len > 0:
+            embeddings = nn.functional.pad(embeddings, (0, 0, self.padding_len, 0))
+            
+        # Create sliding windows of size `max_len`
+        # Unfold the input tensor to create overlapping windows
+        unfolded_embeddings = embeddings.unfold(dimension=1, size=self.max_len, step=1)
+        unfolded_embeddings = unfolded_embeddings.contiguous().view(batch_size, self.max_len, -1, input_size)  # Shape: (batch_size, max_len, seq_len, input_size)
+        
+        if mask is not None:
+            padded_mask = nn.functional.pad(mask, (self.padding_len, 0), value=1) if mask is not None else None
+            unfolded_mask = padded_mask.unfold(dimension=1, size=self.max_len, step=1) if mask is not None else None
+            if unfolded_mask is not None:
+                unfolded_mask = unfolded_mask.contiguous().view(batch_size, self.max_len, seq_len, 1)
+        
+        # Take the mean of the embeddings across the sequence length dimension
+        mean_embeddings = unfolded_embeddings.sum(dim=1) # Shape (batch_size, seq_len, input_size)
+        if unfolded_mask is not None:
+            valid_timesteps = (1-unfolded_mask.to(embeddings.dtype)).sum(dim=1)  # Shape (batch_size, seq_len, 1)
+            valid_timesteps = torch.where(valid_timesteps==0, self.max_len, valid_timesteps)  # Ensure no division by zero
+        else:
+        # For the first max_len - 1 timesteps, use arange to count the number of valid timesteps, for the remaining timesteps use max_len as the number of valid timesteps
+            valid_timesteps = torch.arange(1, self.max_len + 1, device=embeddings.device)
+            valid_timesteps = torch.cat([valid_timesteps, torch.tensor([self.max_len] * (batch_size - self.max_len), device=embeddings.device)])
+            valid_timesteps = valid_timesteps.unsqueeze(-1).unsqueeze(-1)
+        mean_embeddings = mean_embeddings / valid_timesteps  # Normalize by the number of valid timesteps
+        
+        # Apply the linear layer to the mean embeddings
+        output = self.linear(mean_embeddings)
+        
+        # Apply dropout
+        output = self.output_dropout_layer(output)
+        
+        return output

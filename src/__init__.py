@@ -1,6 +1,6 @@
 from .mi_datamodule import get_datasetDict, get_dataset, create_mask, default_collate_fn, MIDataLoaderModule
 from .mi_model import ( recurrent, AutoRegressiveTransformer, PositionalEncoding, InputEmbeddings, 
-                       AutoRegressiveLinear, AutoRegressiveLinear2)
+                       AutoRegressiveLinear, AutoRegressiveLinear2, BoELinear)
 from .mi_transformers import (TransformerModel)
 from .mi_lightningmodule import MILightningModule
 from .mi_args import get_data_args, get_model_args, get_training_args, get_default_args

@@ -49,36 +49,51 @@ def mi_mse(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
         Calculate MSE loss for Multi Instance Learning. 
         Computes squared loss between input and target for the valid timesteps denoted by the mask. 
     """
-    assert reduction in ["within-seq", "flatten", "none"], f"Invalid reduction: {reduction}. Choose from ['within-seq', 'flatten', 'none']"
+    assert reduction in ["within-seq", "flatten", "none", "between-seq"], f"Invalid reduction: {reduction}. Choose from ['within-seq', 'flatten', 'none', 'between-seq']"
     if mask is None:
         mask = torch.ones(input.shape, device=input.device)
     
     if reduction == "within-seq":
-        if isinstance(input, tuple):
-            # residue = (target - input[0]) # TODO: Just regress the residual as loss
-            main_loss = torch.square(0.9*target - input[0])*mask
-            residual_loss = torch.square(0.1*target - input[1])*mask
-            main_loss = torch.sum(main_loss, axis=1)/torch.sum(mask, axis=1)
-            main_loss = torch.mean(main_loss, axis=0).mean()
-            residual_loss = torch.sum(residual_loss, axis=1)/torch.sum(mask, axis=1)
-            residual_loss = torch.mean(residual_loss, axis=0).mean()
-            loss = main_loss + residual_loss
-        else:
+        # if isinstance(input, tuple):
+        #     # residue = (target - input[0]) # TODO: Just regress the residual as loss
+        #     main_loss = torch.square(0.9*target - input[0])*mask
+        #     residual_loss = torch.square(0.1*target - input[1])*mask
+        #     main_loss = torch.sum(main_loss, axis=1)/torch.sum(mask, axis=1)
+        #     main_loss = torch.mean(main_loss, axis=0).mean()
+        #     residual_loss = torch.sum(residual_loss, axis=1)/torch.sum(mask, axis=1)
+        #     residual_loss = torch.mean(residual_loss, axis=0).mean()
+        #     loss = main_loss + residual_loss
+        # else:
             loss = torch.square(input - target)*mask
             loss = torch.sum(loss, axis=1)/torch.sum(mask, axis=1)
             loss = torch.mean(loss, axis=0).mean()
     elif reduction == "flatten":
-        if isinstance(input, tuple):
-            residue = (target - input[0])
-            main_loss = torch.square(residue)*mask
-            residual_loss = torch.square(residue - input[1])*mask
-            main_loss = torch.sum(main_loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
-            residual_loss = torch.sum(residual_loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
-            loss = torch.mean(main_loss) + torch.mean(residual_loss)
-        else:
+        # if isinstance(input, tuple):
+        #     residue = (target - input[0])
+        #     main_loss = torch.square(residue)*mask
+        #     residual_loss = torch.square(residue - input[1])*mask
+        #     main_loss = torch.sum(main_loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
+        #     residual_loss = torch.sum(residual_loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
+        #     loss = torch.mean(main_loss) + torch.mean(residual_loss)
+        # else:
             loss = torch.square(input - target)*mask
             loss = torch.sum(loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
             loss = torch.mean(loss)
+    elif reduction == "between-seq":
+        # if isinstance(input, tuple):
+        #     residue = (target - input[0])
+        #     main_loss = torch.square(residue)*mask
+        #     residual_loss = torch.square(residue - input[1])*mask
+        #     main_loss = torch.sum(main_loss, axis=1)/torch.sum(mask, axis=1)
+        #     main_loss = torch.mean(main_loss, axis=0).mean()
+        #     residual_loss = torch.sum(residual_loss, axis=1)/torch.sum(mask, axis=1)
+        #     residual_loss = torch.mean(residual_loss, axis=0).mean()
+        #     loss = main_loss + residual_loss
+        # else:
+            input_mean = torch.sum(input*mask, axis=1)/torch.sum(mask, axis=1) # average over timesteps
+            target_mean = torch.sum(target*mask, axis=1)/torch.sum(mask, axis=1) # average over timesteps
+            loss = torch.square(input_mean - target_mean)
+            loss = torch.mean(loss, axis=0).mean() # average over sequences and then over outcomes
     elif reduction == "none" or reduction is None:
         loss = torch.square(input - target)*mask
     
@@ -90,7 +105,7 @@ def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq"
         Calculate SMAPE loss for Multi Instance Learning. 
         Computes SMAPE loss between input and target for the valid timesteps denoted by the mask. 
     """
-    assert reduction in ["within-seq", "flatten", "none"], f"Invalid reduction: {reduction}. Choose from ['within-seq', 'flatten', 'none']"
+    assert reduction in ["within-seq", "flatten", "none", "between-seq"], f"Invalid reduction: {reduction}. Choose from ['within-seq', 'flatten', 'none', 'between-seq']"
     if mask is None:
         mask = torch.ones(input.shape, device=input.device) 
     
@@ -104,6 +119,11 @@ def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq"
         loss = torch.abs(input - target)/(torch.abs(input) + torch.abs(target) + epsilon)*mask
         loss = 2*torch.sum(loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1]) # average loss over sequences and timesteps
         loss = torch.mean(loss) # average loss over outcomes 
+    elif reduction == "between-seq":
+        input_mean = torch.sum(input*mask, axis=1)/torch.sum(mask, axis=1)
+        target_mean = torch.sum(target*mask, axis=1)/torch.sum(mask, axis=1)
+        loss = torch.abs(input_mean - target_mean)/(torch.abs(input_mean) + torch.abs(target_mean) + epsilon)
+        loss = 2*torch.mean(loss, axis=0).mean() # average loss over sequences and then over outcomes
     elif reduction == "none" or reduction is None:
         loss = 2*torch.abs(input - target)/(torch.abs(input) + torch.abs(target))*mask
         
@@ -111,6 +131,15 @@ def mi_smape(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq"
 
 
 def pearson_corrcoef(input, target, mask=None, dim:int=1):
+    """
+    Calculate Pearson correlation coefficient between input and target.
+    Computes Pearson correlation coefficient for the valid timesteps denoted by the mask.
+    dim is the dimension along which to compute the correlation.
+    Default is 1, which means the correlation is computed along the sequence dimension.
+    If mask is None, it assumes all timesteps are valid.
+    The input and target should be of the same shape.
+    Returns a tensor of Pearson correlation coefficients.
+    """
     if mask is None: mask = torch.ones(input.shape, device=input.device)
     input_mean = torch.sum(input*mask, dim=dim)/torch.sum(mask, dim=dim)
     target_mean = torch.sum(target*mask, dim=dim)/torch.sum(mask, dim=dim)
@@ -125,7 +154,7 @@ def mi_pearsonr(input:torch.Tensor, target:torch.Tensor, reduction="within-seq",
         Calculate Pearson correlation coefficient for Multi Instance Learning.
         Computes Pearson correlation coefficient between input and target for the valid timesteps denoted by the mask.
     """
-    assert reduction in ["within-seq", "flatten"], f"Invalid reduction: {reduction}. Choose from ['within-seq', 'flatten']"
+    assert reduction in ["within-seq", "flatten", "between-seq"], f"Invalid reduction: {reduction}. Choose from ['within-seq', 'flatten', 'between-seq']"
     if mask is None:
         mask = torch.ones(input.shape, device=input.device)
 
@@ -145,7 +174,12 @@ def mi_pearsonr(input:torch.Tensor, target:torch.Tensor, reduction="within-seq",
             mask_ = mask[:, :, i]
             seq_pearsonr = pearson_corrcoef(input_, target_, mask_, dim=1) # returns Pearson correlation value for each sequence
             pearson_rs.append(torch.mean(seq_pearsonr)) # Append the Pearson correlation coefficient for each outcome
-    
+        elif reduction == "between-seq":
+            # Compute Pearson correlation coefficient for each outcome but on the average of all sequences
+            input_mean = torch.sum(input[:, :, i]*mask[:, :, i], dim=1)/torch.sum(mask[:, :, i], dim=1)
+            target_mean = torch.sum(target[:, :, i]*mask[:, :, i], dim=1)/torch.sum(mask[:, :, i], dim=1)
+            seq_pearsonr = pearson_corrcoef(input_mean, target_mean, dim=0) # returns Pearson correlation value on the average input and target
+            pearson_rs.append(seq_pearsonr) 
     # Return the average Pearson correlation coefficient 
     return torch.mean(torch.tensor(pearson_rs))
 
@@ -155,7 +189,7 @@ def mi_mae(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
         Calculate MAE loss for Multi Instance Learning. 
         Computes MAE loss between input and target for the valid timesteps denoted by the mask. 
     """
-    assert reduction in ["within-seq", "flatten", "none"], f"Invalid reduction: {reduction}. Choose from ['within-seq', 'flatten', 'none']"
+    assert reduction in ["within-seq", "flatten", "none", "between-seq"], f"Invalid reduction: {reduction}. Choose from ['within-seq', 'flatten', 'none', 'between-seq']"
     if mask is None:
         mask = torch.ones(input.shape, device=input.device) 
     
@@ -168,6 +202,11 @@ def mi_mae(input:torch.Tensor, target:torch.Tensor, reduction:str="within-seq", 
         loss = torch.abs(input - target)*mask
         loss = torch.sum(loss, axis=[0, 1])/torch.sum(mask, axis=[0, 1])
         loss = torch.mean(loss)
+    elif reduction == "between-seq":
+        input_mean = torch.sum(input*mask, axis=1)/torch.sum(mask, axis=1)
+        target_mean = torch.sum(target*mask, axis=1)/torch.sum(mask, axis=1)
+        loss = torch.abs(input_mean - target_mean)
+        loss = torch.mean(loss, axis=0).mean() # average loss over sequences and then over outcomes
     elif reduction == "none" or reduction is None:
         loss = torch.abs(input - target)*mask
     

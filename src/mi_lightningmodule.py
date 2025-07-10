@@ -19,7 +19,7 @@ class MILightningModule(pl.LightningModule):
         if args.max_seq_len == -1: args.max_seq_len = args.max_len
         self.seq_len_scheduler = SequenceLengthScheduler(min_seq_len=args.min_seq_len, max_seq_len=args.max_seq_len, 
                                                          num_epochs=args.max_scheduled_epochs,
-                                                         scheduler_type=args.seq_len_scheduler_type)
+                                                         scheduler_type=args.seq_len_scheduler_type) if args.seq_len_scheduler_type != 'none' else None
                 
         self.metrics_fns = {}
         if args.num_classes>2:
@@ -50,7 +50,6 @@ class MILightningModule(pl.LightningModule):
 
     def configure_optimizers(self) -> Any:
         # return torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
-        # return torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
         return torch.optim.AdamW(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
     
     
@@ -69,7 +68,7 @@ class MILightningModule(pl.LightningModule):
     def calculate_metrics(self, input:torch.Tensor, target:torch.Tensor, mask:torch.Tensor=None) -> Dict:
         metric_score = dict()
         for metric_name, fn in self.metrics_fns.items():
-            metric_score[metric_name] = fn(input=input, target=target, mask=mask)
+            metric_score[metric_name] = fn(input=input, target=target, mask=mask, reduction=self.args.metrics_reduction)
         return metric_score
 
     
@@ -77,17 +76,13 @@ class MILightningModule(pl.LightningModule):
         # TODO: CHECK IF ALL USERS HAVE ooss==0
         # TODO: CHECK IF ALL TIME POINTS HAVE oots==0
         batch, batch_labels, seq_id = self.unpack_batch_model_inputs(batch)
-        batch['outcomes_mask'] = self.seq_len_scheduler.trim_sequence(outcomes_mask=batch['outcomes_mask'],
+        if self.seq_len_scheduler: batch['outcomes_mask'] = self.seq_len_scheduler.trim_sequence(outcomes_mask=batch['outcomes_mask'],
                                                                       current_epoch=self.current_epoch)
         batch_output = self.model(**batch)
         batch_labels_diffed = self.processor.shift_labels(batch_labels)
         # Loss only calculates for the valid timesteps
-        
-        if isinstance(batch_output, tuple): # written in for residual loss model
-            batch_loss = self.loss(input=batch_output[1], target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
-        else:
-            batch_loss = self.loss(input=batch_output, target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
-        batch_output = batch_output[0] if isinstance(batch_output, tuple) else batch_output
+        outcomes_mask = batch['outcomes_mask'] & (batch['oots_mask'].unsqueeze(-1) == 0) 
+        batch_loss = self.loss(input=batch_output, target=batch_labels_diffed, mask=outcomes_mask, reduction=self.args.loss_reduction)
         
         batch_output_adj = self.processor.reshift_labels(batch_output, batch_labels, batch['outcomes_mask']) 
         step_metrics = self.calculate_metrics(batch_output_adj, batch_labels, batch['outcomes_mask'])
@@ -115,11 +110,7 @@ class MILightningModule(pl.LightningModule):
         batch_output = self.model(**batch)
         batch_labels_diffed = self.processor.shift_labels(batch_labels)
         
-        if isinstance(batch_output, tuple):
-            batch_loss = self.loss(input=batch_output[1], target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
-        else:
-            batch_loss = self.loss(input=batch_output, target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
-        batch_output = batch_output[0] if isinstance(batch_output, tuple) else batch_output
+        batch_loss = self.loss(input=batch_output, target=batch_labels_diffed, mask=batch['outcomes_mask'], reduction=self.args.loss_reduction)
         batch_output_adj = self.processor.reshift_labels(batch_output, batch_labels, batch['outcomes_mask'])
         # Filter data based on five categories and compute loss/metrics for all categories:
         #                1. to the OOTS and Within Sample Sequence data
@@ -151,11 +142,28 @@ class MILightningModule(pl.LightningModule):
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             ws_wt_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            ws_wt_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            ws_wt_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            ws_wt_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            ws_wt_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            ws_wt_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            ws_wt_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            ws_wt_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            ws_wt_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
         
+        valset_batch_loss, valset_pearsonr, valset_smape = default_loss, default_pearsonr, default_smape
+        valset_mae, valset_mse = default_mae, default_mse
+        # get all records that are not oots==0 and ooss==0
+        if torch.sum((batch['ooss_mask']==1) | batch['oots_mask']==1)>0:
+            batch_mask_subset = torch.where((batch['ooss_mask']==1).unsqueeze(-1) | (batch['oots_mask']==1).unsqueeze(-1), 
+                                            batch['outcomes_mask'], torch.zeros_like(batch['outcomes_mask']))
+            batch_output_ = batch_output[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_output_adj_ = batch_output_adj[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_labels_diffed_ = batch_labels_diffed[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
+            valset_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
+            valset_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            valset_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            valset_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            valset_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+
         ws_oots_batch_loss, ws_oots_pearsonr, ws_oots_smape = default_loss, default_pearsonr, default_smape
         ws_oots_mae, ws_oots_mse = default_mae, default_mse
         if torch.sum((batch['ooss_mask']==0) & (batch['oots_mask']==1))>0:
@@ -169,10 +177,10 @@ class MILightningModule(pl.LightningModule):
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             ws_oots_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            ws_oots_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            ws_oots_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            ws_oots_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            ws_oots_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            ws_oots_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            ws_oots_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            ws_oots_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            ws_oots_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
             
         wt_ooss_batch_loss, wt_ooss_pearsonr, wt_ooss_smape = default_loss, default_pearsonr, default_smape
         wt_ooss_mae, wt_ooss_mse = default_mae, default_mse
@@ -185,10 +193,10 @@ class MILightningModule(pl.LightningModule):
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             wt_ooss_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            wt_ooss_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            wt_ooss_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            wt_ooss_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            wt_ooss_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            wt_ooss_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            wt_ooss_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            wt_ooss_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            wt_ooss_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
             
         oots_ooss_batch_loss, oots_ooss_pearsonr, oots_ooss_smape = default_loss, default_pearsonr, default_smape
         oots_ooss_mae, oots_ooss_mse = default_mae, default_mse
@@ -201,10 +209,10 @@ class MILightningModule(pl.LightningModule):
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             oots_ooss_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            oots_ooss_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            oots_ooss_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            oots_ooss_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            oots_ooss_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            oots_ooss_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            oots_ooss_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            oots_ooss_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            oots_ooss_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
             
         oots_batch_loss, oots_pearsonr, oots_smape = default_loss, default_pearsonr, default_smape
         oots_mae, oots_mse = default_mae, default_mse
@@ -217,10 +225,10 @@ class MILightningModule(pl.LightningModule):
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             oots_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            oots_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            oots_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            oots_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            oots_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            oots_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            oots_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            oots_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            oots_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
             
         ooss_batch_loss, ooss_pearsonr, ooss_smape = default_loss, default_pearsonr, default_smape
         ooss_mae, ooss_mse = default_mae, default_mse
@@ -233,13 +241,14 @@ class MILightningModule(pl.LightningModule):
             batch_labels_ = batch_labels[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             batch_mask_subset = batch_mask_subset[torch.sum(batch_mask_subset, dim=[1, 2])>0]
             ooss_batch_loss = self.loss(input=batch_output_, target=batch_labels_diffed_, mask=batch_mask_subset, reduction=self.args.loss_reduction)
-            ooss_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            ooss_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            ooss_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
-            ooss_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset)
+            ooss_pearsonr = mi_pearsonr(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            ooss_smape = mi_smape(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            ooss_mae = mi_mae(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
+            ooss_mse = mi_mse(input=batch_output_adj_, target=batch_labels_, mask=batch_mask_subset, reduction=self.args.metrics_reduction)
             
         log_metrics_dict = {}        
         if not (ws_wt_batch_loss==default_loss): log_metrics_dict['val_ws_wt_loss'] = ws_wt_batch_loss
+        if not (valset_batch_loss==default_loss): log_metrics_dict['val_valset_loss'] = valset_batch_loss
         if not (ws_oots_batch_loss==default_loss): log_metrics_dict['val_ws_oots_loss'] = ws_oots_batch_loss
         if not (wt_ooss_batch_loss==default_loss): log_metrics_dict['val_wt_ooss_loss'] = wt_ooss_batch_loss
         if not (oots_ooss_batch_loss==default_loss): log_metrics_dict['val_oots_ooss_loss'] = oots_ooss_batch_loss
@@ -247,6 +256,7 @@ class MILightningModule(pl.LightningModule):
         if not (ooss_batch_loss==default_loss): log_metrics_dict['val_ooss_loss'] = ooss_batch_loss
 
         if not (ws_wt_pearsonr==default_pearsonr): log_metrics_dict['val_ws_wt_pearsonr'] = ws_wt_pearsonr
+        if not (valset_pearsonr==default_pearsonr): log_metrics_dict['val_valset_pearsonr'] = valset_pearsonr
         if not (ws_oots_pearsonr==default_pearsonr): log_metrics_dict['val_ws_oots_pearsonr'] = ws_oots_pearsonr
         if not (wt_ooss_pearsonr==default_pearsonr): log_metrics_dict['val_wt_ooss_pearsonr'] = wt_ooss_pearsonr
         if not (oots_ooss_pearsonr==default_pearsonr): log_metrics_dict['val_oots_ooss_pearsonr'] = oots_ooss_pearsonr
@@ -254,6 +264,7 @@ class MILightningModule(pl.LightningModule):
         if not (ooss_pearsonr==default_pearsonr): log_metrics_dict['val_ooss_pearsonr'] = ooss_pearsonr
 
         if not (ws_wt_smape==default_smape): log_metrics_dict['val_ws_wt_smape'] = ws_wt_smape
+        if not (valset_smape==default_smape): log_metrics_dict['val_valset_smape'] = valset_smape
         if not (ws_oots_smape==default_smape): log_metrics_dict['val_ws_oots_smape'] = ws_oots_smape
         if not (wt_ooss_smape==default_smape): log_metrics_dict['val_wt_ooss_smape'] = wt_ooss_smape
         if not (oots_ooss_smape==default_smape): log_metrics_dict['val_oots_ooss_smape'] = oots_ooss_smape
@@ -261,6 +272,7 @@ class MILightningModule(pl.LightningModule):
         if not (ooss_smape==default_smape): log_metrics_dict['val_ooss_smape'] = ooss_smape
 
         if not (ws_wt_mae==default_mae): log_metrics_dict['val_ws_wt_mae'] = ws_wt_mae
+        if not (valset_mae==default_mae): log_metrics_dict['val_valset_mae'] = valset_mae
         if not (ws_oots_mae==default_mae): log_metrics_dict['val_ws_oots_mae'] = ws_oots_mae
         if not (wt_ooss_mae==default_mae): log_metrics_dict['val_wt_ooss_mae'] = wt_ooss_mae
         if not (oots_ooss_mae==default_mae): log_metrics_dict['val_oots_ooss_mae'] = oots_ooss_mae
@@ -268,6 +280,7 @@ class MILightningModule(pl.LightningModule):
         if not (ooss_mae==default_mae): log_metrics_dict['val_ooss_mae'] = ooss_mae
 
         if not (ws_wt_mse==default_mse): log_metrics_dict['val_ws_wt_mse'] = ws_wt_mse
+        if not (valset_mse==default_mse): log_metrics_dict['val_valset_mse'] = valset_mse
         if not (ws_oots_mse==default_mse): log_metrics_dict['val_ws_oots_mse'] = ws_oots_mse
         if not (wt_ooss_mse==default_mse): log_metrics_dict['val_wt_ooss_mse'] = wt_ooss_mse
         if not (oots_ooss_mse==default_mse): log_metrics_dict['val_oots_ooss_mse'] = oots_ooss_mse
@@ -275,15 +288,15 @@ class MILightningModule(pl.LightningModule):
         if not (ooss_mse==default_mse): log_metrics_dict['val_ooss_mse'] = ooss_mse
         
         self.log_dict(log_metrics_dict, on_step=False, on_epoch=True)
-        step_output = {'ws_wt_loss': ws_wt_batch_loss, 'ws_oots_loss': ws_oots_batch_loss, 'wt_ooss_loss': wt_ooss_batch_loss, 
+        step_output = {'ws_wt_loss': ws_wt_batch_loss, 'valset_loss': valset_batch_loss, 'ws_oots_loss': ws_oots_batch_loss, 'wt_ooss_loss': wt_ooss_batch_loss, 
                        'oots_ooss_loss': oots_ooss_batch_loss, 'oots_loss': oots_batch_loss, 'ooss_loss': ooss_batch_loss,  
-                        'ws_wt_pearsonr': ws_wt_pearsonr, 'ws_oots_pearsonr': ws_oots_pearsonr, 'wt_ooss_pearsonr': wt_ooss_pearsonr, 
+                        'ws_wt_pearsonr': ws_wt_pearsonr, 'valset_pearsonr': valset_pearsonr, 'ws_oots_pearsonr': ws_oots_pearsonr, 'wt_ooss_pearsonr': wt_ooss_pearsonr, 
                         'oots_ooss_pearsonr': oots_ooss_pearsonr, 'oots_pearsonr': oots_pearsonr, 'ooss_pearsonr': ooss_pearsonr, 
-                        'ws_wt_smape': ws_wt_smape, 'ws_oots_smape': ws_oots_smape, 'wt_ooss_smape': wt_ooss_smape, 
+                        'ws_wt_smape': ws_wt_smape, 'valset_smape': valset_smape, 'ws_oots_smape': ws_oots_smape, 'wt_ooss_smape': wt_ooss_smape, 
                         'oots_ooss_smape': oots_ooss_smape, 'oots_smape': oots_smape, 'ooss_smape': ooss_smape,
-                        'ws_wt_mae': ws_wt_mae, 'ws_oots_mae': ws_oots_mae, 'wt_ooss_mae': wt_ooss_mae, 'oots_ooss_mae': oots_ooss_mae,
+                        'ws_wt_mae': ws_wt_mae, 'valset_mae': valset_mae, 'ws_oots_mae': ws_oots_mae, 'wt_ooss_mae': wt_ooss_mae, 'oots_ooss_mae': oots_ooss_mae,
                         'oots_mae': oots_mae, 'ooss_mae': ooss_mae,
-                        'ws_wt_mse': ws_wt_mse, 'ws_oots_mse': ws_oots_mse, 'wt_ooss_mse': wt_ooss_mse, 'oots_ooss_mse': oots_ooss_mse,
+                        'ws_wt_mse': ws_wt_mse, 'valset_mse': valset_mse, 'ws_oots_mse': ws_oots_mse, 'wt_ooss_mse': wt_ooss_mse, 'oots_ooss_mse': oots_ooss_mse,
                         'oots_mse': oots_mse, 'ooss_mse': ooss_mse,
                         'outcomes': batch_labels, 'outcomes_mask': batch['outcomes_mask'], 'step': torch.tensor([self.global_step]),
                         'seq_id': seq_id, 'ooss_mask': batch['ooss_mask'], 'oots_mask': batch['oots_mask'], 'pred': batch_output_adj,
@@ -350,45 +363,50 @@ class MILightningModule(pl.LightningModule):
                 self.epoch_loss[process].append(avg_loss.item())                
         elif process == 'val':
             avg_ws_wt_loss = torch.tensor([x for x in cat_outputs['ws_wt_loss'] if x >= 0]).mean() if 'ws_wt_loss' in cat_outputs else None
+            avg_valset_loss = torch.tensor([x for x in cat_outputs['valset_loss'] if x >= 0]).mean() if 'valset_loss' in cat_outputs else None
             avg_ws_oots_loss = torch.tensor([x for x in cat_outputs['ws_oots_loss'] if x >= 0]).mean() if 'ws_oots_loss' in cat_outputs else None
             avg_wt_ooss_loss = torch.tensor([x for x in cat_outputs['wt_ooss_loss'] if x >= 0]).mean() if 'wt_ooss_loss' in cat_outputs else None
             avg_oots_ooss_loss = torch.tensor([x for x in cat_outputs['oots_ooss_loss'] if x >= 0]).mean() if 'oots_ooss_loss' in cat_outputs else None
             avg_oots_loss = torch.tensor([x for x in cat_outputs['oots_loss'] if x >= 0]).mean() if 'oots_loss' in cat_outputs else None
             avg_ooss_loss = torch.tensor([x for x in cat_outputs['ooss_loss'] if x >= 0]).mean() if 'ooss_loss' in cat_outputs else None
             avg_ws_wt_pearsonr = torch.tensor([x for x in cat_outputs['ws_wt_pearsonr'] if x >= -1]).mean() if 'ws_wt_pearsonr' in cat_outputs else None
+            avg_valset_pearsonr = torch.tensor([x for x in cat_outputs['valset_pearsonr'] if x >= -1]).mean() if 'valset_pearsonr' in cat_outputs else None
             avg_ws_oots_pearsonr = torch.tensor([x for x in cat_outputs['ws_oots_pearsonr'] if x >= -1]).mean() if 'ws_oots_pearsonr' in cat_outputs else None
             avg_wt_ooss_pearsonr = torch.tensor([x for x in cat_outputs['wt_ooss_pearsonr'] if x >= -1]).mean() if 'wt_ooss_pearsonr' in cat_outputs else None
             avg_oots_ooss_pearsonr = torch.tensor([x for x in cat_outputs['oots_ooss_pearsonr'] if x >= -1]).mean() if 'oots_ooss_pearsonr' in cat_outputs else None
             avg_oots_pearsonr = torch.tensor([x for x in cat_outputs['oots_pearsonr'] if x >= -1]).mean() if 'oots_pearsonr' in cat_outputs else None
             avg_ooss_pearsonr = torch.tensor([x for x in cat_outputs['ooss_pearsonr'] if x >= -1]).mean() if 'ooss_pearsonr' in cat_outputs else None
             avg_ws_wt_smape = torch.tensor([x for x in cat_outputs['ws_wt_smape'] if x >= 0]).mean() if 'ws_wt_smape' in cat_outputs else None
+            avg_valset_smape = torch.tensor([x for x in cat_outputs['valset_smape'] if x >= 0]).mean() if 'valset_smape' in cat_outputs else None
             avg_ws_oots_smape = torch.tensor([x for x in cat_outputs['ws_oots_smape'] if x >= 0]).mean() if 'ws_oots_smape' in cat_outputs else None
             avg_wt_ooss_smape = torch.tensor([x for x in cat_outputs['wt_ooss_smape'] if x >= 0]).mean() if 'wt_ooss_smape' in cat_outputs else None
             avg_oots_ooss_smape = torch.tensor([x for x in cat_outputs['oots_ooss_smape'] if x >= 0]).mean() if 'oots_ooss_smape' in cat_outputs else None
             avg_oots_smape = torch.tensor([x for x in cat_outputs['oots_smape'] if x >= 0]).mean() if 'oots_smape' in cat_outputs else None
             avg_ooss_smape = torch.tensor([x for x in cat_outputs['ooss_smape'] if x >= 0]).mean() if 'ooss_smape' in cat_outputs else None
             avg_ws_wt_mae = torch.tensor([x for x in cat_outputs['ws_wt_mae'] if x >= 0]).mean() if 'ws_wt_mae' in cat_outputs else None
+            avg_valset_mae = torch.tensor([x for x in cat_outputs['valset_mae'] if x >= 0]).mean() if 'valset_mae' in cat_outputs else None
             avg_ws_oots_mae = torch.tensor([x for x in cat_outputs['ws_oots_mae'] if x >= 0]).mean() if 'ws_oots_mae' in cat_outputs else None
             avg_wt_ooss_mae = torch.tensor([x for x in cat_outputs['wt_ooss_mae'] if x >= 0]).mean() if 'wt_ooss_mae' in cat_outputs else None
             avg_oots_ooss_mae = torch.tensor([x for x in cat_outputs['oots_ooss_mae'] if x >= 0]).mean() if 'oots_ooss_mae' in cat_outputs else None
             avg_oots_mae = torch.tensor([x for x in cat_outputs['oots_mae'] if x >= 0]).mean() if 'oots_mae' in cat_outputs else None
             avg_ooss_mae = torch.tensor([x for x in cat_outputs['ooss_mae'] if x >= 0]).mean() if 'ooss_mae' in cat_outputs else None
             avg_ws_wt_mse = torch.tensor([x for x in cat_outputs['ws_wt_mse'] if x >= 0]).mean() if 'ws_wt_mse' in cat_outputs else None
+            avg_valset_mse = torch.tensor([x for x in cat_outputs['valset_mse'] if x >= 0]).mean() if 'valset_mse' in cat_outputs else None
             avg_ws_oots_mse = torch.tensor([x for x in cat_outputs['ws_oots_mse'] if x >= 0]).mean() if 'ws_oots_mse' in cat_outputs else None
             avg_wt_ooss_mse = torch.tensor([x for x in cat_outputs['wt_ooss_mse'] if x >= 0]).mean() if 'wt_ooss_mse' in cat_outputs else None
             avg_oots_ooss_mse = torch.tensor([x for x in cat_outputs['oots_ooss_mse'] if x >= 0]).mean() if 'oots_ooss_mse' in cat_outputs else None
             avg_oots_mse = torch.tensor([x for x in cat_outputs['oots_mse'] if x >= 0]).mean() if 'oots_mse' in cat_outputs else None
             avg_ooss_mse = torch.tensor([x for x in cat_outputs['ooss_mse'] if x >= 0]).mean() if 'ooss_mse' in cat_outputs else None
-            
-            self.epoch_loss[process].append({'ws_wt_loss': avg_ws_wt_loss, 'ws_oots_loss': avg_ws_oots_loss, 'wt_ooss_loss': avg_wt_ooss_loss, 
-                                             'oots_ooss_loss': avg_oots_ooss_loss, 'oots_loss': avg_oots_loss, 'ooss_loss': avg_ooss_loss,
-                                            'ws_wt_pearsonr': avg_ws_wt_pearsonr, 'ws_oots_pearsonr': avg_ws_oots_pearsonr, 'wt_ooss_pearsonr': avg_wt_ooss_pearsonr, 
+
+            self.epoch_loss[process].append({'ws_wt_loss': avg_ws_wt_loss, 'valset_loss': avg_valset_loss,  'ws_oots_loss': avg_ws_oots_loss, 'wt_ooss_loss': avg_wt_ooss_loss,
+                                            'oots_ooss_loss': avg_oots_ooss_loss, 'oots_loss': avg_oots_loss, 'ooss_loss': avg_ooss_loss,
+                                            'ws_wt_pearsonr': avg_ws_wt_pearsonr, 'valset_pearsonr':avg_valset_pearsonr, 'ws_oots_pearsonr': avg_ws_oots_pearsonr, 'wt_ooss_pearsonr': avg_wt_ooss_pearsonr, 
                                             'oots_ooss_pearsonr': avg_oots_ooss_pearsonr, 'oots_pearsonr': avg_oots_pearsonr, 'ooss_pearsonr': avg_ooss_pearsonr,
-                                            'ws_wt_smape': avg_ws_wt_smape, 'ws_oots_smape': avg_ws_oots_smape, 'wt_ooss_smape': avg_wt_ooss_smape, 
+                                            'ws_wt_smape': avg_ws_wt_smape, 'valset_smape': avg_valset_smape , 'ws_oots_smape': avg_ws_oots_smape, 'wt_ooss_smape': avg_wt_ooss_smape, 
                                             'oots_ooss_smape': avg_oots_ooss_smape, 'oots_smape': avg_oots_smape, 'ooss_smape': avg_ooss_smape,
-                                            'ws_wt_mae': avg_ws_wt_mae, 'ws_oots_mae': avg_ws_oots_mae, 'wt_ooss_mae': avg_wt_ooss_mae, 
+                                            'ws_wt_mae': avg_ws_wt_mae, 'valset_mae': avg_valset_mae, 'ws_oots_mae': avg_ws_oots_mae, 'wt_ooss_mae': avg_wt_ooss_mae, 
                                             'oots_ooss_mae': avg_oots_ooss_mae, 'oots_mae': avg_oots_mae, 'ooss_mae': avg_ooss_mae,
-                                            'ws_wt_mse': avg_ws_wt_mse, 'ws_oots_mse': avg_ws_oots_mse, 'wt_ooss_mse': avg_wt_ooss_mse, 
+                                            'ws_wt_mse': avg_ws_wt_mse, 'valset_mse': avg_valset_mse, 'ws_oots_mse': avg_ws_oots_mse, 'wt_ooss_mse': avg_wt_ooss_mse, 
                                             'oots_ooss_mse': avg_oots_ooss_mse, 'oots_mse': avg_oots_mse, 'ooss_mse': avg_ooss_mse})
         
         if 'pred' in cat_outputs: self.labels[process]['preds'].append(cat_outputs['pred'])
@@ -431,30 +449,35 @@ class MILightningModule(pl.LightningModule):
         if self.global_rank==0: 
             self.save_outputs(process="val")
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_wt_loss']): self.logger.log_metrics({'val_epoch_ws_wt_loss': self.epoch_loss['val'][-1]['ws_wt_loss']}, epoch=self.current_epoch)
+            if ~torch.isnan(self.epoch_loss['val'][-1]['valset_loss']): self.logger.log_metrics({'val_epoch_valset_loss': self.epoch_loss['val'][-1]['valset_loss']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_oots_loss']): self.logger.log_metrics({'val_epoch_ws_oots_loss': self.epoch_loss['val'][-1]['ws_oots_loss']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['wt_ooss_loss']): self.logger.log_metrics({'val_epoch_wt_ooss_loss': self.epoch_loss['val'][-1]['wt_ooss_loss']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['oots_ooss_loss']): self.logger.log_metrics({'val_epoch_oots_ooss_loss': self.epoch_loss['val'][-1]['oots_ooss_loss']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['oots_loss']): self.logger.log_metrics({'val_epoch_oots_loss': self.epoch_loss['val'][-1]['oots_loss']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ooss_loss']): self.logger.log_metrics({'val_epoch_ooss_loss': self.epoch_loss['val'][-1]['ooss_loss']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_wt_pearsonr']): self.logger.log_metrics({'val_epoch_ws_wt_pearsonr': self.epoch_loss['val'][-1]['ws_wt_pearsonr']}, epoch=self.current_epoch)
+            if ~torch.isnan(self.epoch_loss['val'][-1]['valset_pearsonr']): self.logger.log_metrics({'val_epoch_valset_pearsonr': self.epoch_loss['val'][-1]['valset_pearsonr']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_oots_pearsonr']): self.logger.log_metrics({'val_epoch_ws_oots_pearsonr': self.epoch_loss['val'][-1]['ws_oots_pearsonr']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['wt_ooss_pearsonr']): self.logger.log_metrics({'val_epoch_wt_ooss_pearsonr': self.epoch_loss['val'][-1]['wt_ooss_pearsonr']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['oots_ooss_pearsonr']): self.logger.log_metrics({'val_epoch_oots_ooss_pearsonr': self.epoch_loss['val'][-1]['oots_ooss_pearsonr']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['oots_pearsonr']): self.logger.log_metrics({'val_epoch_oots_pearsonr': self.epoch_loss['val'][-1]['oots_pearsonr']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ooss_pearsonr']): self.logger.log_metrics({'val_epoch_ooss_pearsonr': self.epoch_loss['val'][-1]['ooss_pearsonr']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_wt_smape']): self.logger.log_metrics({'val_epoch_ws_wt_smape': self.epoch_loss['val'][-1]['ws_wt_smape']}, epoch=self.current_epoch)
+            if ~torch.isnan(self.epoch_loss['val'][-1]['valset_smape']): self.logger.log_metrics({'val_epoch_valset_smape': self.epoch_loss['val'][-1]['valset_smape']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_oots_smape']): self.logger.log_metrics({'val_epoch_ws_oots_smape': self.epoch_loss['val'][-1]['ws_oots_smape']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['wt_ooss_smape']): self.logger.log_metrics({'val_epoch_wt_ooss_smape': self.epoch_loss['val'][-1]['wt_ooss_smape']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['oots_ooss_smape']): self.logger.log_metrics({'val_epoch_oots_ooss_smape': self.epoch_loss['val'][-1]['oots_ooss_smape']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['oots_smape']): self.logger.log_metrics({'val_epoch_oots_smape': self.epoch_loss['val'][-1]['oots_smape']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ooss_smape']): self.logger.log_metrics({'val_epoch_ooss_smape': self.epoch_loss['val'][-1]['ooss_smape']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_wt_mae']): self.logger.log_metrics({'val_epoch_ws_wt_mae': self.epoch_loss['val'][-1]['ws_wt_mae']}, epoch=self.current_epoch)
+            if ~torch.isnan(self.epoch_loss['val'][-1]['valset_mae']): self.logger.log_metrics({'val_epoch_valset_mae': self.epoch_loss['val'][-1]['valset_mae']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_oots_mae']): self.logger.log_metrics({'val_epoch_ws_oots_mae': self.epoch_loss['val'][-1]['ws_oots_mae']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['wt_ooss_mae']): self.logger.log_metrics({'val_epoch_wt_ooss_mae': self.epoch_loss['val'][-1]['wt_ooss_mae']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['oots_ooss_mae']): self.logger.log_metrics({'val_epoch_oots_ooss_mae': self.epoch_loss['val'][-1]['oots_ooss_mae']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['oots_mae']): self.logger.log_metrics({'val_epoch_oots_mae': self.epoch_loss['val'][-1]['oots_mae']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ooss_mae']): self.logger.log_metrics({'val_epoch_ooss_mae': self.epoch_loss['val'][-1]['ooss_mae']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_wt_mse']): self.logger.log_metrics({'val_epoch_ws_wt_mse': self.epoch_loss['val'][-1]['ws_wt_mse']}, epoch=self.current_epoch)
+            if ~torch.isnan(self.epoch_loss['val'][-1]['valset_mse']): self.logger.log_metrics({'val_epoch_valset_mse': self.epoch_loss['val'][-1]['valset_mse']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['ws_oots_mse']): self.logger.log_metrics({'val_epoch_ws_oots_mse': self.epoch_loss['val'][-1]['ws_oots_mse']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['wt_ooss_mse']): self.logger.log_metrics({'val_epoch_wt_ooss_mse': self.epoch_loss['val'][-1]['wt_ooss_mse']}, epoch=self.current_epoch)
             if ~torch.isnan(self.epoch_loss['val'][-1]['oots_ooss_mse']): self.logger.log_metrics({'val_epoch_oots_ooss_mse': self.epoch_loss['val'][-1]['oots_ooss_mse']}, epoch=self.current_epoch)
@@ -539,9 +562,9 @@ class SequenceLengthScheduler:
                 num_epochs (int): Number of epochs to train for
                 scheduler_type (str): Type of scheduler to use. Options: 'linear', 'exponential', 'none'
         """
-        assert min_seq_len > 0, "Minimum sequence length must be greater than 0"
-        assert max_seq_len > min_seq_len, "Maximum sequence length must be greater than minimum sequence length"
-        assert num_epochs > 0, "Number of epochs must be greater than 0"
+        assert min_seq_len > 0, "Minimum sequence length must be greater than 0. Minimum sequence length: {}".format(min_seq_len)
+        assert max_seq_len > min_seq_len, "Maximum sequence length must be greater than minimum sequence length. Min/Max sequence length: {}/{}".format(min_seq_len, max_seq_len)
+        assert num_epochs > 0, "Number of epochs must be greater than 0. Number of epochs: {}".format(num_epochs)
         
         self.max_seq_len = max_seq_len
         self.min_seq_len = min_seq_len
