@@ -32,6 +32,8 @@ def get_model_args(parser: argparse.ArgumentParser):
                         help='output layer dropout (default: 0.10)')
     parser.add_argument('--positional_encoding_type', type=str, default='none',
                         help='positional encoding type (default: none)', choices=['none', 'sinusoidal', 'learned', 'rope'])
+    parser.add_argument('--pre_ln', action='store_true', default=False,
+                        help='use pre-layer normalization (default: False)')
     parser.add_argument('--bidirectional', action='store_true', default=False,
                         help='bidirectional (default: False)')
     parser.add_argument('--num_heads', type=int, default=2,
@@ -64,6 +66,8 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='class weight for cross entropy loss (default: None)')
     parser.add_argument('--loss_reduction', type=str, default='flatten', choices=['within-seq', 'flatten', 'none'],
                         help='Loss reduction strategy (default: flatten)')
+    parser.add_argument('--metrics_reduction', type=str, default='within-seq', choices=['within-seq', 'between-seq', 'flatten', 'none'],
+                        help='Metrics reduction strategy (default: flatten)')
     # Args for turning sequence prediction into change prediction
     parser.add_argument('--do_shift', action='store_true', default=False,
                         help='Predict the change instead of the absolute value (default: False)')

@@ -28,6 +28,7 @@ from CustomScratchTransformers import SCTRNS_ARCH
 if __name__ == '__main__':
     
     args = get_default_args()
+    # data = load_from_disk(args.data_dir)
     data = load_from_disk(args.data_dir)
     
     datasetDict = get_datasetDict(train_data=data, val_folds=args.val_folds)
@@ -182,8 +183,7 @@ if __name__ == '__main__':
         with open(os.path.join(args.output_dir, '{}/{}/epoch_metrics.pkl'.format(logger._project_name, logger._experiment_key)), 'wb') as f:
             pickle.dump(lightning_module.epoch_metrics, f, protocol=pickle.HIGHEST_PROTOCOL)
         print ('Saved epoch metrics to {}'.format(os.path.join(args.output_dir, '{}/{}/epoch_metrics.pkl'.format(logger._project_name, logger._experiment_key))))
-
-    logger.experiment.end()    
+        logger.experiment.end()    
     
 """
 Example:
