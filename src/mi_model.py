@@ -16,7 +16,8 @@ torch.manual_seed(42)
 #################################
 
 class recurrent(nn.Module):
-    def __init__(self, input_size, hidden_size, num_classes, num_outcomes=1, num_layers=1, dropout=0.0, bidirectional=False, output_dropout=0.0):
+    def __init__(self, input_size, hidden_size, num_classes, num_outcomes=1, num_layers=1, dropout=0.0, bidirectional=False, output_dropout=0.0, 
+                mute_grad=False):
         super(recurrent, self).__init__()
         
         self.input_size = input_size
@@ -26,6 +27,7 @@ class recurrent(nn.Module):
         self.dropout = dropout
         self.num_classes = num_classes
         self.num_outcomes = num_outcomes
+        self.mute_grad = mute_grad # mute gradients of the model. Added this param for optimizer to include the unmuted model parameters in the optimizer.
         
         # TODO: Positional encoding
         self.model = []
@@ -174,7 +176,7 @@ class AutoRegressiveTransformer(nn.Module):
     """
     def __init__(self, input_size:int, hidden_size:int, num_classes:int, num_outcomes:int=1, num_layers:int=1, 
                  dropout:float=0.0, bidirectional:bool=False, output_dropout:float=0.0, num_heads:int=4, max_len:int=120,
-                 positional_encoding_type:str=None, ):
+                 positional_encoding_type:str=None, mute_grad:bool=False):
         super(AutoRegressiveTransformer, self).__init__()
         
         self.input_size = input_size
@@ -188,6 +190,7 @@ class AutoRegressiveTransformer(nn.Module):
         self.num_heads = num_heads
         self.max_len = max_len
         self.positional_encoding_type = positional_encoding_type
+        self.mute_grad = mute_grad
         self.init_model()
     
     def init_model(self):
@@ -269,7 +272,7 @@ class AutoRegressiveTransformer(nn.Module):
     
 class AutoRegressiveLinear(nn.Module):
     def __init__(self, input_size:int, hidden_size:int, num_classes:int, num_outcomes:int=1, num_layers:int=1, 
-                output_dropout:float=0.0, max_len:int=1):
+                output_dropout:float=0.0, max_len:int=1, mute_grad:bool=False):
         super(AutoRegressiveLinear, self).__init__()
         
         self.input_size = input_size
@@ -280,6 +283,7 @@ class AutoRegressiveLinear(nn.Module):
         self.num_outcomes = num_outcomes
         self.max_len = max_len
         self.padding_len = self.max_len - 1 #Padding length for causal convolution to make the output of the same length as the input
+        self.mute_grad = mute_grad
         self.init_model()
         print (self)
         
@@ -328,7 +332,7 @@ class AutoRegressiveLinear(nn.Module):
 
 class AutoRegressiveLinear2(nn.Module):
     def __init__(self, input_size: int, hidden_size: int, num_classes: int, num_outcomes: int = 1, 
-                 output_dropout: float = 0.0, max_len: int = 1, **kwargs):
+                 output_dropout: float = 0.0, max_len: int = 1, mute_grad:bool=False, **kwargs):
         super(AutoRegressiveLinear2, self).__init__()
         
         self.input_size = input_size
@@ -338,6 +342,7 @@ class AutoRegressiveLinear2(nn.Module):
         self.max_len = max_len
         self.output_dropout = output_dropout
         self.padding_len = self.max_len - 1  # Padding length for causal sliding
+        self.mute_grad = mute_grad
         self.init_model()
         print (self)
 
@@ -397,7 +402,7 @@ class BoELinear(nn.Module):
         This model takes the mean of the embeddings and applies a linear layer.
     """
     def __init__(self, input_size:int, num_classes:int, num_outcomes:int=1, output_dropout:float=0.0, 
-                 max_len:int=1, **kwargs):
+                 max_len:int=1, mute_grad:bool=False, **kwargs):
         super(BoELinear, self).__init__()
         
         self.input_size = input_size
@@ -406,6 +411,7 @@ class BoELinear(nn.Module):
         self.output_dropout = output_dropout
         self.max_len = max_len
         self.padding_len = self.max_len - 1  # Padding length for causal sliding
+        self.mute_grad = mute_grad
         self.model_init()
         print (self)
         

@@ -152,11 +152,12 @@ class RotaryPositionalEmbeddings(nn.Module):
 
 
 class MultiHeadedSelfAttention(nn.Module):
-    def __init__(self, dim, num_heads, dropout=0.1, relative_emb=None):
+    def __init__(self, dim, num_heads, dim_feedforward:int, dropout=0.1, relative_emb=None):
         super(MultiHeadedSelfAttention, self).__init__()
         self.dim = dim
+        self.dim_feedforward = dim_feedforward
         self.num_heads = num_heads
-        self.head_dim = dim // num_heads
+        self.head_dim = self.dim_feedforward // num_heads
         self.scale = self.head_dim ** -0.5
         
         self.q_proj = nn.Linear(dim, self.head_dim * num_heads)
@@ -167,10 +168,17 @@ class MultiHeadedSelfAttention(nn.Module):
         self.sm = nn.Softmax(dim=-1)
         self.attn_dropout = nn.Dropout(dropout)
                 
-        _zero_pad = torch.zeros(self.num_heads * self.head_dim - self.dim, dtype=torch.float32)
-        self.register_buffer('_zero_pad', _zero_pad)
+        # _zero_pad = torch.zeros(self.num_heads * self.head_dim - self.dim, dtype=torch.float32)
+        # self.register_buffer('_zero_pad', _zero_pad)
+        
+    def build_max_history_mask(self, seq_len: int, max_history: int, device=None):
+        idx = torch.arange(seq_len, device=device)
+        # Compare broadcasted query and key indices
+        mask = idx.unsqueeze(1) - idx.unsqueeze(0)  # (seq_len, seq_len)
+        mask = mask > (max_history - 1)  # True where j < i - max_history + 1
+        return mask.float().masked_fill(mask, float('-inf'))  # (seq_len, seq_len)
     
-    def scaled_dot_product_attention(self, q, k, v, attn_mask=None, is_causal:bool=False, key_padding_mask=None):
+    def scaled_dot_product_attention(self, q, k, v, attn_mask=None, is_causal:bool=False, key_padding_mask=None, max_history_len:int=None):
         """
         Scaled dot-product attention mechanism.
         Args:
@@ -198,18 +206,22 @@ class MultiHeadedSelfAttention(nn.Module):
             # Create a causal mask if not provided
             attn_mask = torch.tril(torch.ones(seq_len, seq_len, device=q.device)).unsqueeze(0).unsqueeze(0)
             attn_mask = torch.where(attn_mask == 0, float('-inf'), 0.0).expand(bsz, 1, -1, -1)
-            
+        
+        if max_history_len is not None:
+            history_mask = self.build_max_history_mask(seq_len, max_history_len, device=q.device)
+            history_mask = history_mask.unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, seq_len)
+            attn_mask = history_mask if attn_mask is None else attn_mask + history_mask
+        
         if key_padding_mask is not None:
             # make the columns of attn_mask corresponding to pad tokens (key_padding_mask==True) equal to -inf
             # key_padding_mask is of shape (batch_size, seq_len)
             idxs = torch.nonzero(key_padding_mask==1)
+            attn_mask = attn_mask.clone()
             attn_mask[idxs[:, 0], :, :, idxs[:, 1]] = float('-inf')
-            # import pdb; pdb.set_trace()
         
         if attn_mask is not None:
             attn_weights = attn_weights + attn_mask
         attn = self.sm(attn_weights)
-        # import pdb; pdb.set_trace()
         
         attn = self.attn_dropout(attn)
         out = (attn @ v).transpose(1, 2).reshape(bsz, seq_len, -1)#[..., :self.dim]  # Remove padding if added
@@ -218,7 +230,7 @@ class MultiHeadedSelfAttention(nn.Module):
         return out
 
     # @autocast(device_type='cuda')
-    def forward(self, x, attn_mask=None, is_causal:bool=False, key_padding_mask=None):
+    def forward(self, x, attn_mask=None, is_causal:bool=False, key_padding_mask=None, max_history_len:int=None):
         """
         Forward pass for the multi-headed self-attention mechanism.
         Args:
@@ -226,6 +238,7 @@ class MultiHeadedSelfAttention(nn.Module):
             attn_mask (torch.Tensor, optional): Attention mask of shape (batch_size, 1, seq_len, seq_len). Use -inf for masked positions and 0 for unmasked positions.
             is_causal (bool, optional): Whether to apply causal masking. Defaults to False.
             key_padding_mask (torch.Tensor, optional): Key padding mask of shape (batch_size, seq_len). Use 0 for unmasked positions and 1 for masked positions.
+            max_history_len (int, optional): Maximum history length for attention. If provided, applies a history mask.
         Returns:
             torch.Tensor: Output tensor of shape (batch_size, seq_len, dim).
         """
@@ -250,28 +263,34 @@ class MultiHeadedSelfAttention(nn.Module):
         out = self.scaled_dot_product_attention(q, k, v, 
                                                 attn_mask=attn_mask, 
                                                 is_causal=is_causal, 
-                                                key_padding_mask=key_padding_mask)
+                                                key_padding_mask=key_padding_mask,
+                                                max_history_len=max_history_len)
         return out
     
 
 # Classical Transformer block implementation from the paper "Attention is All You Need" (Vaswani et al., 2017)
 # https://arxiv.org/abs/1706.03762
 class TransformerBlock(nn.Module):
-    def __init__(self, dim, num_heads, dropout:float=0.0, rotary_emb=None, activation:str='relu', pre_ln:bool=False):
+    def __init__(self, input_dim, num_heads, dim_feedforward:int,
+                 dropout:float=0.0, rotary_emb=None, activation:str='relu', pre_ln:bool=False,
+                 max_history_len:int=None):
         super(TransformerBlock, self).__init__()
-        self.dim = dim
+        self.dim = input_dim
+        self.dim_feedforward = dim_feedforward if dim_feedforward is not None else input_dim
         self.num_heads = num_heads
-        self.head_dim = dim // num_heads
+        self.head_dim = self.dim_feedforward // self.num_heads
+        self.max_history_len = max_history_len
 
-        self.ln1 = nn.LayerNorm(dim, elementwise_affine=True)
-        self.attn = MultiHeadedSelfAttention(dim, num_heads, dropout, rotary_emb)
-        self.out_proj = nn.Linear(self.head_dim * self.num_heads, dim)
-        self.ln2 = nn.LayerNorm(dim, elementwise_affine=True)
+        self.ln1 = nn.LayerNorm(self.dim, elementwise_affine=True)
+        self.attn = MultiHeadedSelfAttention(dim=self.dim, num_heads=num_heads, dim_feedforward=self.dim_feedforward, 
+                                             dropout=dropout, relative_emb=rotary_emb)
+        self.out_proj = nn.Linear(self.num_heads*self.head_dim, self.dim)
+        self.ln2 = nn.LayerNorm(self.dim, elementwise_affine=True)
         
-        self.mlp_in = nn.Linear(dim, dim)
+        self.mlp_in = nn.Linear(self.dim, self.dim)
         self.activation = nn.ReLU() if activation == 'relu' else nn.GELU() if activation == 'gelu' else nn.Identity()
         self.dropout1 = nn.Dropout(dropout)
-        self.mlp_out = nn.Linear(dim, dim)
+        self.mlp_out = nn.Linear(self.dim, self.dim)
         self.dropout2 = nn.Dropout(dropout)
         self.pre_ln = pre_ln # Set to True for pre-layer normalization, False for post-layer normalization. Vaswani used post-layer normalization.
         self.init_model()
@@ -310,7 +329,8 @@ class TransformerBlock(nn.Module):
             
             # Multi-headed self-attention
             attn_out = self.attn(x_ln, attn_mask=attn_mask,
-                                    is_causal=is_causal, key_padding_mask=key_padding_mask)
+                                    is_causal=is_causal, key_padding_mask=key_padding_mask,
+                                    max_history_len=self.max_history_len)
             out = self.out_proj(attn_out) + x
             
             # Layer normalization 2
@@ -320,7 +340,8 @@ class TransformerBlock(nn.Module):
         else:        
             # Multi-headed self-attention
             attn_out = self.attn(x, attn_mask=attn_mask,
-                                    is_causal=is_causal, key_padding_mask=key_padding_mask)
+                                    is_causal=is_causal, key_padding_mask=key_padding_mask,
+                                    max_history_len=self.max_history_len)
             out = self.out_proj(attn_out) + x
             
             out_ln = self.ln1(out)
@@ -389,16 +410,17 @@ class ParallelTransformerBlock(nn.Module):
 
 
 class RoPETransformerModel(nn.Module):
-    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, num_outcomes:int=1, pre_ln:bool=False, 
-                 dropout:float=0.0, output_dropout:float=0.0, max_seq_len:int=512):
+    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, dim_feedforward:int, num_outcomes:int=1, pre_ln:bool=False, 
+                 dropout:float=0.0, output_dropout:float=0.0, max_seq_len:int=512, max_history_len:int=None, mute_grad:bool=False):
         super(RoPETransformerModel, self).__init__()
         self.rotary_emb_obj = RotaryPositionalEmbeddings(dim=input_dim//num_heads, max_seq_len=max_seq_len)
         self.layers = nn.ModuleList([
-            TransformerBlock(dim=input_dim, num_heads=num_heads, dropout=dropout, rotary_emb=self.rotary_emb_obj, pre_ln=pre_ln) for _ in range(num_layers)
+            TransformerBlock(input_dim=input_dim, num_heads=num_heads, dim_feedforward=dim_feedforward, dropout=dropout, rotary_emb=self.rotary_emb_obj, pre_ln=pre_ln, max_history_len=max_history_len) for _ in range(num_layers)
         ])
         self.fc_out = nn.Linear(input_dim, num_classes * num_outcomes)
         self.op_dropout = nn.Dropout(output_dropout)
         self.max_seq_len = max_seq_len
+        self.mute_grad = mute_grad
 
     def forward(self, embeddings, mask=None, **kwargs):
         # src_key_padding_mask only to mask out the padded tokens, i.e., timestep with time_ids = -1. 
@@ -428,16 +450,18 @@ class RoPETransformerModel(nn.Module):
     
     
 class SinusoidalTransformerModel(nn.Module):
-    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, num_outcomes:int=1, 
-                 dropout:float=0.0, output_dropout:float=0.0, max_len:int=512, pre_ln:bool=False):
+    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, dim_feedforward:int, num_outcomes:int=1, 
+                 dropout:float=0.0, output_dropout:float=0.0, max_len:int=512, pre_ln:bool=False, max_history_len:int=None, 
+                 mute_grad:bool=False):
         super(SinusoidalTransformerModel, self).__init__()
         self.positional_encoding = SinusoidalPositionalEncoding(input_dim, max_len)
         self.layers = nn.ModuleList([
-            TransformerBlock(dim=input_dim, num_heads=num_heads, dropout=dropout, pre_ln=pre_ln) for _ in range(num_layers)
+            TransformerBlock(input_dim=input_dim, num_heads=num_heads, dim_feedforward=dim_feedforward, dropout=dropout, pre_ln=pre_ln, max_history_len=max_history_len) for _ in range(num_layers)
         ])
         self.fc_out = nn.Linear(input_dim, num_classes * num_outcomes)  
         self.op_dropout = nn.Dropout(output_dropout)
         self.max_len = max_len
+        self.mute_grad = mute_grad
 
     def forward(self, embeddings, mask=None, **kwargs):
         
@@ -469,14 +493,15 @@ class SinusoidalTransformerModel(nn.Module):
 
 
 class NoPositionalTransformerModel(nn.Module):
-    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, num_outcomes:int=1, pre_ln:bool=False, 
-                 dropout:float=0.0, output_dropout:float=0.0):
+    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, dim_feedforward:int, num_outcomes:int=1, pre_ln:bool=False, 
+                 dropout:float=0.0, output_dropout:float=0.0, max_history_len:int=None, mute_grad:bool=False):
         super(NoPositionalTransformerModel, self).__init__()
         self.layers = nn.ModuleList([
-            TransformerBlock(dim=input_dim, num_heads=num_heads, dropout=dropout, pre_ln=pre_ln) for _ in range(num_layers)
+            TransformerBlock(input_dim=input_dim, num_heads=num_heads, dim_feedforward=dim_feedforward, dropout=dropout, pre_ln=pre_ln, max_history_len=max_history_len) for _ in range(num_layers)
         ])
         self.fc_out = nn.Linear(input_dim, num_classes * num_outcomes)
         self.op_dropout = nn.Dropout(output_dropout)
+        self.mute_grad = mute_grad
 
     def forward(self, embeddings, mask=None, **kwargs):
         # src_key_padding_mask only to mask out the padded tokens, i.e., timestep with time_ids = -1. 
@@ -506,24 +531,25 @@ class NoPositionalTransformerModel(nn.Module):
     
     
 class TransformerModel(nn.Module):
-    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int , num_outcomes:int=1,
+    def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int , dim_feedforward:int=None, num_outcomes:int=1,
                  dropout:float=0.0, output_dropout:float=0.0, max_len:int=512, 
-                 positional_encoding:str='sinusoidal', pre_ln:bool=False):
+                 positional_encoding:str='sinusoidal', pre_ln:bool=False, max_history_len:int=None, mute_grad:bool=False):
         super(TransformerModel, self).__init__()
         if positional_encoding == 'sinusoidal':
-            self.model = SinusoidalTransformerModel(input_dim=input_dim, num_heads=num_heads, num_layers=num_layers, 
+            self.model = SinusoidalTransformerModel(input_dim=input_dim, num_heads=num_heads, num_layers=num_layers, dim_feedforward=dim_feedforward,
                                                     num_classes=num_classes, num_outcomes=num_outcomes, dropout=dropout, 
-                                                    output_dropout=output_dropout, max_len=max_len, pre_ln=pre_ln)
+                                                    output_dropout=output_dropout, max_len=max_len, pre_ln=pre_ln, max_history_len=max_history_len)
         elif positional_encoding == 'rope':
-            self.model = RoPETransformerModel(input_dim=input_dim, num_heads=num_heads, num_layers=num_layers,
+            self.model = RoPETransformerModel(input_dim=input_dim, num_heads=num_heads, num_layers=num_layers, dim_feedforward=dim_feedforward,
                                               num_classes=num_classes, num_outcomes=num_outcomes, dropout=dropout, 
-                                              output_dropout=output_dropout, max_seq_len=max_len, pre_ln=pre_ln) 
+                                              output_dropout=output_dropout, max_seq_len=max_len, pre_ln=pre_ln, max_history_len=max_history_len) 
         elif positional_encoding == 'none':
-            self.model = NoPositionalTransformerModel(input_dim=input_dim, num_heads=num_heads, num_layers=num_layers, 
+            self.model = NoPositionalTransformerModel(input_dim=input_dim, num_heads=num_heads, num_layers=num_layers, dim_feedforward=dim_feedforward,
                                                       num_classes=num_classes, num_outcomes=num_outcomes, dropout=dropout, 
-                                                      output_dropout=output_dropout, pre_ln=pre_ln)
+                                                      output_dropout=output_dropout, pre_ln=pre_ln, max_history_len=max_history_len)
         else:
             raise ValueError(f"Unknown positional encoding type: {positional_encoding}. Choose from 'sinusoidal', 'rope', or 'none'.")
+        self.mute_grad = mute_grad
         
     def forward(self, embeddings, mask=None, **kwargs):
         """

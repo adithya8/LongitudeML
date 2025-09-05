@@ -49,10 +49,55 @@ class MILightningModule(pl.LightningModule):
             
 
     def configure_optimizers(self) -> Any:
-        # return torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
-        return torch.optim.AdamW(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
-    
-    
+        # Filter parameters to exclude those with mute_grad=True
+        def filter_parameters(model):
+            # TODO: Check if this is correct by building a simple compound model with a module that has mute_grad=True and a module that has mute_grad=False.
+            """Recursively filter parameters to exclude those with mute_grad=True"""
+            params = []
+            for name, param in model.named_parameters():
+                # Check if any parent module in the hierarchy has mute_grad=True
+                param_path = name.split('.')
+                should_exclude = False
+                # Check the parameter itself
+                if hasattr(param, 'mute_grad') and param.mute_grad:
+                    should_exclude = True
+                # Check all parent modules in the hierarchy
+                current_module = model
+                for i, module_name in enumerate(param_path[:-1]):  # Exclude the parameter name itself
+                    if hasattr(current_module, module_name):
+                        current_module = getattr(current_module, module_name)
+                        if hasattr(current_module, 'mute_grad') and current_module.mute_grad:
+                            should_exclude = True
+                            break
+                    else:
+                        # If we can't find the module, try using named_modules
+                        module_dict = dict(model.named_modules())
+                        full_path = '.'.join(param_path[:i+1])
+                        if full_path in module_dict:
+                            current_module = module_dict[full_path]
+                            if hasattr(current_module, 'mute_grad') and current_module.mute_grad:
+                                should_exclude = True
+                                break
+                if not should_exclude:
+                    params.append(param)
+            return params
+        
+        # Get filtered parameters
+        trainable_params = filter_parameters(self.model)
+        if self.args.optimizer == 'adamw':
+            optim = torch.optim.AdamW(trainable_params, lr=self.args.lr, weight_decay=self.args.weight_decay)
+        else:
+            optim = torch.optim.SGD(trainable_params, lr=self.args.lr, weight_decay=self.args.weight_decay)
+        return_dict = {'optimizer': optim}
+        if self.args.lr_scheduler == 'linear': 
+            scheduler = torch.optim.lr_scheduler.LinearLR(optimizer=optim, start_factor=self.args.start_factor, 
+                                                         total_iters=self.args.warmup_epochs)
+            return_dict['lr_scheduler'] = scheduler
+        print (f"Using optimizer: {optim} with lr_scheduler: {scheduler if self.args.lr_scheduler == 'linear' else None}")
+        print (f"Number of trainable parameters: {len(trainable_params)}")
+        return return_dict
+
+
     def unpack_batch_model_inputs(self, batch):
         """
             Unpack the batch and return the model inputs separated from the other batch tensors

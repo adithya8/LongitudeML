@@ -45,7 +45,7 @@ def get_datasetDict(train_data:Union[Dict, Dataset], val_data:Union[Dict, Datase
     if val_data is not None: datasetDict['val'] = Dataset.from_dict(val_data) if isinstance(val_data, dict) else val_data
     if test_data is not None: datasetDict['test']  = Dataset.from_dict(test_data) if isinstance(test_data, dict) else test_data
 
-    if val_folds is not None:
+    if val_folds is not None: # Passing empty list would create a val set. Intended functionality is to create a val set from all folds.
         val_folds = set(val_folds)
         datasetDict['val'] = datasetDict['train'].filter(lambda example: example[fold_col] in val_folds)
         datasetDict['train'] = datasetDict['train'].filter(lambda example: example[fold_col] not in val_folds)

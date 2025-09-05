@@ -24,6 +24,8 @@ def get_model_args(parser: argparse.ArgumentParser):
                         help='Number of outcomes (default: 1)')
     parser.add_argument('--hidden_size', type=int, default=128, #required=True,
                         help='hidden size (default: 128)')
+    parser.add_argument('--projection_size', type=int, default=None,
+                        help='projection size (default: None, same as hidden_size)')
     parser.add_argument('--num_layers', type=int, default=1,
                         help='number of layers (default: 1)')
     parser.add_argument('--dropout', type=float, default=0.10,
@@ -40,7 +42,12 @@ def get_model_args(parser: argparse.ArgumentParser):
                         help='number of heads for transformer model (default: 2)')
     parser.add_argument('--max_len', type=int, default=130,
                         help='maximum sequence length for transformer model (default: 130)')
-
+    parser.add_argument('--max_history_len', type=int, default=None,
+                        help='maximum history length for transformer model (default: None, same as max_len). \
+                            If set, attention will be limited to this length.')
+    parser.add_argument('--sliding_window_size', type=int, default=None,
+                        help='sliding window size for ensuring that the model recalibrates input at every timestep\
+                            beyond the sliding window size (default: None, no sliding window)')
 
 def get_training_args(parser: argparse.ArgumentParser):
     # training_args: arguments related to training
@@ -50,6 +57,8 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='do Test (default: False)')
     parser.add_argument('--val_folds', nargs='+', type=int, default=[],
                         help='folds to validate on (default: [])')
+    parser.add_argument('--test_folds', nargs='+', type=int, default=[],
+                        help='folds to test on (default: [])')
     parser.add_argument('--do_hparam_tune', action='store_true', default=False,
                         help='do hyperparameter tuning (default: False)')
     parser.add_argument('--n_trials', type=int, default=100,
@@ -94,6 +103,12 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='learning rate (default: 0.001)')
     parser.add_argument('--weight_decay', type=float, default=0.0,
                         help='weight decay (default: 0.0)')
+    parser.add_argument('--lr_scheduler', type=str, default='none',
+                        help='learning rate scheduler (default: none)', choices=['none', 'linear'])
+    parser.add_argument('--warmup_epochs', type=int, default=1,
+                        help='number of warmup epochs for learning rate scheduler (default: 1)')
+    parser.add_argument('--start_factor', type=float, default=0.5,
+                        help='start factor for learning rate scheduler (default: 0.5)')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='number of workers (default: 4)')
     parser.add_argument('--seed', type=int, default=42,
@@ -110,6 +125,8 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help="Path to the weights of the subscale model")
     parser.add_argument('--lang_weights_path', type=str, default=None,
                         help="Path to the weights of the language model")
+    parser.add_argument('--optimizer', type=str, default='adamw', choices=['adamw', 'sgd'],
+                        help="Optimizer (default: adamw)")
     #TODO: Add early stopping
 
 

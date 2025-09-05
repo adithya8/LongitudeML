@@ -32,6 +32,15 @@ Creates a `DatasetDict` with 'train', 'val', and 'test' splits from input dictio
 
 ---
 
+> **OOTS and OOSS**
+> 
+> - **OOTS (Out-Of-Time Sample):** Refers to data points (usually time points within a user’s sequence) that are held out from the training period and only appear in validation or test sets. This is used to evaluate how well a model generalizes to future/unseen time periods for the same users.
+> - **OOSS (Out-Of-Sequence Sample):** Refers to entire user sequences that are held out from training and only appear in validation or test sets. This is used to evaluate how well a model generalizes to entirely new users (sequences) that were not seen during training.
+>
+> The `ooss_mask` column in each dataset split indicates whether a sample is an out-of-sequence sample (OOSS), i.e., from a user not present in the training set. If present, an `oots_mask` column would indicate out-of-time samples (OOTS), i.e., time points that occur after the training period for a given user.
+
+---
+
 ### `create_mask(examples)`
 **What it does:**  
 Adds mask fields to each sequence for handling missing time points and infilling missing vectors/labels. Used with `.map()` on a Dataset.

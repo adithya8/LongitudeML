@@ -1,5 +1,6 @@
 from typing import Any, List, Union
 import torch
+from scipy.stats import pearsonr
 # import torchmetrics.functional.regression as tm_reg
 # import torchmetrics.functional.classification as tm_cls  
 
