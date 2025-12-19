@@ -10,11 +10,11 @@ import pytorch_lightning as pl
 import pdb
 
 
-def get_dataset(data:Dict):
+def get_dataset(data:Dict, feature_type:str='long'):
     """
         Returns the Huggingface datasets.arrow_dataset.Dataset
     """
-
+    assert feature_type in ['long', 'seq'], "Feature type should be either 'long' or 'seq'"
     dataset = Dataset.from_dict(data)
 
     def create_defaut_time_ids(instance):
@@ -24,7 +24,7 @@ def get_dataset(data:Dict):
         instance['time_ids'] = list(range(len(instance['embeddings'][0])))
         return instance
     
-    if 'time_ids' not in dataset.features:
+    if 'time_ids' not in dataset.features and feature_type == 'long':
         # TODO: Use Logger to log that default time ids are being created
         dataset = dataset.map(create_defaut_time_ids)
     
@@ -132,6 +132,7 @@ def create_mask(examples):
 
 def default_collate_fn(features, predict_last_valid_timestep, partition):
     # Features dict have embeddings, labels, time_ids, query_ids of single sequence (referenced by seq_idx)
+    # seq_embeddings_z shape: (1, demog_dims)
     # predict_last_valid_timestep: True/False
     # Embeddings shape: (1, seq_len, hidden_dim)
     # Labels shape: (seq_len, )
@@ -159,48 +160,78 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
     for k, _ in first.items():
         if k.startswith("embeddings"):
             for feat in features:
-                embeddings = torch.tensor(feat[k]).clone().detach()
+                embeddings = feat[k].clone().detach()
                 if len(embeddings.shape) == 2:
                     embeddings = embeddings.unsqueeze(0)
                 elif len(embeddings.shape) != 3:
-                    raise ValueError("Embeddings shape not supported. Expected shape (seq_len, hidden_dim) or (1, seq_len, hidden_dim). Got shape {}".format(embeddings.shape))
+                    raise ValueError(
+                        "Embeddings shape not supported. Expected shape "
+                        "(seq_len, hidden_dim) or (1, seq_len, hidden_dim). "
+                        f"Got shape {embeddings.shape}"
+                    )
                 if embeddings.shape[1] < max_seq_len:
-                    zeros = torch.zeros((1, max_seq_len - embeddings.shape[1], embeddings.shape[2]))
+                    zeros = torch.zeros(
+                        (1, max_seq_len - embeddings.shape[1], embeddings.shape[2]),
+                        device=embeddings.device,
+                        dtype=embeddings.dtype,
+                    )
                     embeddings = torch.cat((embeddings, zeros), dim=1)
                 feat[k] = embeddings
-            batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
+            batch[k] = torch.cat([f[k] for f in features], dim=0)
         elif k == "labels" or k == "outcomes" or k == "outcomes_mask":
             for feat in features:
-                outcomes = torch.tensor(feat[k]).clone().detach() 
+                outcomes = feat[k].clone().detach()
                 if len(outcomes.shape) == 2:
                     outcomes = outcomes.unsqueeze(0)
                 elif len(outcomes.shape) != 3:
-                    raise ValueError("Outcomes shape not supported. Expected shape (seq_len, outcomes_dim) or (1, seq_len, outcomes_dim). Got shape {}".format(outcomes.shape))
+                    raise ValueError(
+                        "Outcomes shape not supported. Expected shape "
+                        "(seq_len, outcomes_dim) or (1, seq_len, outcomes_dim). "
+                        f"Got shape {outcomes.shape}"
+                    )
                 if outcomes.shape[1] < max_seq_len:
-                    zeros = torch.zeros((1, max_seq_len - outcomes.shape[1], outcomes.shape[2]))
+                    zeros = torch.zeros(
+                        (1, max_seq_len - outcomes.shape[1], outcomes.shape[2]),
+                        device=outcomes.device,
+                        dtype=outcomes.dtype,
+                    )
                     outcomes = torch.cat((outcomes, zeros), dim=1)
                 feat[k] = outcomes
-            batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)
+            batch[k] = torch.cat([f[k] for f in features], dim=0)
             if k=="outcomes_mask": batch[k] = batch[k].to(torch.bool) 
         elif k=="pad_mask" or k=="time_ids" or k=="infill_mask" or k.startswith("mask") or k=="oots_mask" or k.endswith("time_ids"):
             padding_value = -1 if k=="time_ids" or k.endswith("time_ids") else (1 if k=="pad_mask" or k.startswith("mask") or k=="oots_mask" else 0)
-            batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=padding_value, batch_first=True)
+            batch[k] = torch.nn.utils.rnn.pad_sequence(
+                [f[k] for f in features],
+                padding_value=padding_value,
+                batch_first=True,
+            )
             if k == "pad_mask" or k == "infill_mask" or k.startswith("mask") or k == "outcomes_mask" or k == "oots_mask": 
                 batch[k] = batch[k].to(torch.bool)
             elif k == "time_ids":
                 batch[k] = batch[k].to(torch.long)
         elif k.startswith("lastobserved_"):
             for feat in features:
-                lastobserved = torch.tensor(feat[k]).clone().detach()
+                lastobserved = feat[k].clone().detach()
                 if lastobserved.shape[0] < max_seq_len: # TODO: There is a bug here with shape of lastobserved. Fix it
                     pad_values = torch.arange((1, max_seq_len - lastobserved.shape[1] + 1)) + lastobserved[-1]
                     lastobserved = torch.cat((lastobserved, pad_values), dim=0)
                 feat[k] = lastobserved.reshape(1, -1)
-            batch[k] = torch.cat([torch.tensor(f[k]) for f in features], dim=0)             
+            batch[k] = torch.cat([f[k] for f in features], dim=0)             
         elif k=="query_ids":
-            batch[k] = torch.nn.utils.rnn.pad_sequence([torch.tensor(f[k]) for f in features], padding_value=-1, batch_first=True)
+            batch[k] = torch.nn.utils.rnn.pad_sequence(
+                [f[k] for f in features],
+                padding_value=-1,
+                batch_first=True,
+            )
         elif k=="seq_idx" or k=="seq_id" or k=="ooss_mask":
-            batch[k] = torch.tensor([f[k] for f in features]).reshape(len(features), -1)
+            # Stack scalar/1D tensors along batch dimension
+            batch[k] = torch.stack([f[k] for f in features]).reshape(len(features), -1)
+        elif k.startswith("seq_embeddings"):
+            batch[k] = torch.cat(
+                [f[k].unsqueeze(0) for f in features],
+                dim=0,
+            ).to(torch.float32)
         else:
             pass
             # raise Warning("Key {} not supported for batching. Leaving it out of the dataloaders".format(k))
