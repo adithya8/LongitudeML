@@ -107,6 +107,53 @@ class DLATKDataGetter:
         return gns_dict, features_names
 
     
+    def get_seq_feature_tables(self, feature_tables:Union[List, str]=None, where:str='') -> Dict:
+        """
+            Get feature tables at the sequence level.
+            Where clause can be used to filter the data and is run on the message table.
+            Returns
+            -------
+                A dictionary of the following format:
+                {
+                    'seq_id': [sid1, sid2, ...],
+                    'seq_feats': [[feat1, feat2, ...]_sid1, [feat1, feat2, ...]_sid2, ...],
+                }
+        """
+        if feature_tables is None:
+            feature_tables = [self.feature_tables] if isinstance(self.feature_tables, str) else self.feature_tables
+        else:
+            feature_tables = [feature_tables] if isinstance(feature_tables, str) else feature_tables
+        fg = FeatureGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=self.args.correl_field)
+        temp_gns_dict = dict()
+        features_names = []
+        for table in feature_tables:
+            fg.featureTable = table
+            groups = fg.qb.create_select_query(table).set_fields(["DISTINCT group_id"]).where(where).execute_query()
+            groups = [x[0] for x in groups]
+            gns, feats = fg.getGroupNormsWithZeros(where=where, groups=groups)
+            features_names.append(feats)
+            table_gns_dict = dict()
+            for query_id in gns.keys():
+                table_gns_dict[query_id] = []
+                for feat in feats:
+                    table_gns_dict[query_id].append(gns[query_id][feat])
+            temp_gns_dict[table] = table_gns_dict
+                    
+        common_qryids = []
+        for table_gns_dict in temp_gns_dict.values(): 
+            common_qryids.append(set(table_gns_dict.keys()))
+        common_qryids = reduce(lambda x, y: x.intersection(y), common_qryids)
+        
+        gns_dict = dict()
+        # concat the embeddings from all the feature tables only for the common query ids
+        for query_id in common_qryids:
+            gns_dict[query_id] = []
+            for table in temp_gns_dict.keys():
+                gns_dict[query_id].extend(temp_gns_dict[table][query_id])
+
+        return gns_dict, features_names
+
+
     def get_feature(self, feature:str, feature_table:str, where:str=None) -> Dict:
         """
             Get a specific feature from the feature table
@@ -213,6 +260,27 @@ class DLATKDataGetter:
         long_features_dict['embeddings_names'] = features_names
         
         return long_features_dict
+    
+
+    def get_seq_features(self, where:str='') -> Dict:
+        """
+            Gets features/embeddings from the feature tables at the sequence level. These features are present at seq_id level -- hence are static for a given seq_id.
+            Where clause can be used to filter the data and is run on the message table.
+            Returns
+            -------
+                A dictionary of the following format:
+                {
+                    'seq_id': [sid1, sid2, ...],
+                    'seq_feats': [[feat1, feat2, ...]_sid1, [feat1, feat2, ...]_sid2, ...],
+                }
+        """
+        gns_dict, features_names = self.get_seq_feature_tables(where=where)
+        seq_features_dict = dict(seq_id=[], seq_embeddings=[])
+        for seq_id in gns_dict.keys():
+            seq_features_dict['seq_id'].append(seq_id)
+            seq_features_dict['seq_embeddings'].append(gns_dict[seq_id])
+        seq_features_dict['seq_embedding_names'] = features_names
+        return seq_features_dict
 
     
     def long_type_encoding(self, qryid_seqid_mapping) -> Dict:
