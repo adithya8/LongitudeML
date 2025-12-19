@@ -28,10 +28,10 @@ def get_model_args(parser: argparse.ArgumentParser):
                         help='projection size (default: None, same as hidden_size)')
     parser.add_argument('--num_layers', type=int, default=1,
                         help='number of layers (default: 1)')
-    parser.add_argument('--dropout', type=float, default=0.10,
-                        help='dropout (default: 0.10)')
-    parser.add_argument('--output_dropout', type=float, default=0.10,
-                        help='output layer dropout (default: 0.10)')
+    parser.add_argument('--dropout', type=float, default=0.0,
+                        help='dropout (default: 0.0)')
+    parser.add_argument('--output_dropout', type=float, default=0.0,
+                        help='output layer dropout (default: 0.0)')
     parser.add_argument('--positional_encoding_type', type=str, default='none',
                         help='positional encoding type (default: none)', choices=['none', 'sinusoidal', 'learned', 'rope'])
     parser.add_argument('--pre_ln', action='store_true', default=False,
@@ -73,7 +73,7 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help="Batch size for evaluation.")
     parser.add_argument('--cross_entropy_class_weight', default=None, nargs='+', type=float,
                         help='class weight for cross entropy loss (default: None)')
-    parser.add_argument('--loss_reduction', type=str, default='flatten', choices=['within-seq', 'flatten', 'none'],
+    parser.add_argument('--loss_reduction', type=str, default='flatten', choices=['within-seq', 'between-seq', 'flatten', 'none'],
                         help='Loss reduction strategy (default: flatten)')
     parser.add_argument('--metrics_reduction', type=str, default='within-seq', choices=['within-seq', 'between-seq', 'flatten', 'none'],
                         help='Metrics reduction strategy (default: flatten)')
@@ -109,6 +109,8 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='number of warmup epochs for learning rate scheduler (default: 1)')
     parser.add_argument('--start_factor', type=float, default=0.5,
                         help='start factor for learning rate scheduler (default: 0.5)')
+    parser.add_argument('--end_factor', type=float, default=1,
+                        help='end factor for learning rate scheduler (default: 1)')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='number of workers (default: 4)')
     parser.add_argument('--seed', type=int, default=42,
@@ -127,6 +129,8 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help="Path to the weights of the language model")
     parser.add_argument('--optimizer', type=str, default='adamw', choices=['adamw', 'sgd'],
                         help="Optimizer (default: adamw)")
+    parser.add_argument('--mute_grad', nargs='+', default=[], 
+                        help='modules to mute grad for (options: "subscales", "lang")',)
     #TODO: Add early stopping
 
 
