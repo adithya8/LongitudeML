@@ -1,5 +1,7 @@
 site_name: LongitudeML Documentation
 site_description: Machine learning framework for longitudinal forecasting, particularly suited for time-series and sequence prediction tasks in health and behavioral domains.
+site_url: https://adithya8.github.io/LongitudeML/
+use_directory_urls: true
 
 theme:
   name: readthedocs
