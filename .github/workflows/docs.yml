@@ -29,10 +29,17 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements-docs.txt
+          mkdocs --version
       
       - name: Build documentation
         run: |
-          mkdocs build
+          mkdocs build --verbose
+          echo "Checking built site structure:"
+          ls -la site/
+          echo "Checking for index.html:"
+          ls -la site/index.html || echo "ERROR: index.html not found!"
+          echo "Checking for theme files:"
+          ls -la site/js/ site/css/ 2>/dev/null || echo "WARNING: Theme files not found"
       
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
