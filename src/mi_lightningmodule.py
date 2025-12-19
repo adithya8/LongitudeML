@@ -5,7 +5,7 @@ import torch.nn as nn
 import pytorch_lightning as pl
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 
-from .mi_eval import mi_mse, mi_smape, mi_pearsonr, mi_mae
+from .mi_eval import mi_mse, mi_smape, mi_pearsonr, mi_mae, mi_cs, mi_nce, mi_nce2, mi_nce3
 
 class MILightningModule(pl.LightningModule):
     def __init__(self, args, model):
@@ -14,20 +14,21 @@ class MILightningModule(pl.LightningModule):
         # TODO: Separate model_args from trainer_args (May be)
         self.args = args
         self.model = model
+        # self.model_output_scaler = ModelOutputScaler(method=args.model_output_scaler, num_outcomes=self.args.num_outcomes)
         self.processor = TimeShiftProcessor(do_shift=args.do_shift, interpolation=args.interpolated_output)
         if args.max_scheduled_epochs == -1: args.max_scheduled_epochs = args.epochs
         if args.max_seq_len == -1: args.max_seq_len = args.max_len
         self.seq_len_scheduler = SequenceLengthScheduler(min_seq_len=args.min_seq_len, max_seq_len=args.max_seq_len, 
                                                          num_epochs=args.max_scheduled_epochs,
                                                          scheduler_type=args.seq_len_scheduler_type) if args.seq_len_scheduler_type != 'none' else None
-                
+
         self.metrics_fns = {}
         if args.num_classes>2:
             self.loss = nn.CrossEntropyLoss(weight=args.cross_entropy_class_weight)
         elif args.num_classes==2:
             self.loss = nn.BCEWithLogitsLoss()
         elif args.num_classes==1:
-            self.loss = mi_mse
+            self.loss = mi_mse #mi_nce2 
             self.metrics_fns = {'smape': mi_smape, 'pearsonr': mi_pearsonr, 'mae': mi_mae, 'mse': mi_mse}
         else:
             raise ValueError("Invalid number of classes")
@@ -91,7 +92,7 @@ class MILightningModule(pl.LightningModule):
         return_dict = {'optimizer': optim}
         if self.args.lr_scheduler == 'linear': 
             scheduler = torch.optim.lr_scheduler.LinearLR(optimizer=optim, start_factor=self.args.start_factor, 
-                                                         total_iters=self.args.warmup_epochs)
+                                                         end_factor=self.args.end_factor, total_iters=self.args.warmup_epochs*6)
             return_dict['lr_scheduler'] = scheduler
         print (f"Using optimizer: {optim} with lr_scheduler: {scheduler if self.args.lr_scheduler == 'linear' else None}")
         print (f"Number of trainable parameters: {len(trainable_params)}")
@@ -542,6 +543,39 @@ class MILightningModule(pl.LightningModule):
             for metric_name in self.metrics_fns:
                 self.logger.log_metrics({'test_epoch_{}'.format(metric_name): self.epoch_metrics['test'][metric_name][-1]}, step=self.current_epoch)
             self.step_outputs['test'].clear() 
+
+
+class ModelOutputScaler:
+    def __init__(self, num_outcomes:int, method='std'):
+        self.method = method
+        if method == 'std':
+            self.mean_center = torch.zeros(num_outcomes)
+            self.std = torch.ones(num_outcomes)
+        elif method == 'minmax':
+            self.min_val = torch.zeros(num_outcomes)
+            self.max_val = torch.ones(num_outcomes)
+        self.initialized=False
+        
+    def __call__(self, input, target, mask):
+        if self.method == 'std':
+            #calculate the mean and std for ooss_mask, oots_mask both 0 and outcomes_mask 1
+            if self.initialized == False: self.init_params(target, mask)
+            input = ((input - input.mean())/input.std())*self.std + self.mean_center
+            return input
+        elif self.method == 'minmax':
+            # recaluclate min and max for the train set
+            if self.initialized == False: self.init_params(target, mask)
+            input = (input - input.min())*(self.max_val - self.min_val)/(input.max() - input.min()) + self.min_val
+            return input
+        return input
+    
+    def init_params(self, target, mask):
+        if self.method == 'std':
+            # compute mean and std
+            self.initialized = True
+        elif self.method == 'minmax':
+            # compute min and max
+            self.initialized = True    
 
 
 class TimeShiftProcessor:
