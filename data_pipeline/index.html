@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Data Pipeline - LongitudeML Documentation</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Data Pipeline";
+        var mkdocs_page_input_path = "data_pipeline.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> LongitudeML Documentation
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Data Pipeline</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#dlatkdatagetter-method-reference">DLATKDataGetter: Method Reference</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#get_feature_tablesfeature_tablesnone-where">get_feature_tables(feature_tables=None, where='')</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#get_long_featureswhere-qry_seq_time_id_tablenone">get_long_features(where='', qry_seq_time_id_table=None)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#get_outcomesoutcome_fieldsnone-correl_fieldnone-where">get_outcomes(outcome_fields=None, correl_field=None, where='')</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#get_long_outcomesoutcome_fieldsnone-where">get_long_outcomes(outcome_fields=None, where='')</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#intersect_seqidslong_dict1-long_dict2">intersect_seqids(long_dict1, long_dict2)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#combine_features_and_outcomesoutcomes_correl_fieldnone-features_where-outcomes_where">combine_features_and_outcomes(outcomes_correl_field=None, features_where='', outcomes_where='')</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#train_test_splitdataset_dict-test_ratio02-val_ratio00-stratifynone">train_test_split(dataset_dict, test_ratio=0.2, val_ratio=0.0, stratify=None)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#n_fold_splitdataset_dict-longtype_encoder-fold_column">n_fold_split(dataset_dict, longtype_encoder, fold_column)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#example-usage">Example Usage</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../datamodule/">Data Module</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../models/">Models</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../lightning_module/">Lightning Module</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../sklearn_trainer/">Sklearn Trainer</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../evaluation/">Evaluation</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../logger/">Logger</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../mi_args/">Arguments</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../examples/">Examples</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../utils/">Utils</a>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">LongitudeML Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Data Pipeline</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="data-pipeline-dlatkdatagetter-and-utilities">Data Pipeline: DLATKDataGetter and Utilities<a class="headerlink" href="#data-pipeline-dlatkdatagetter-and-utilities" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>The data pipeline utilities in LongitudeML are designed to extract, process, and prepare longitudinal data from relational databases (e.g., MySQL) for forecasting tasks. The main class is <code>DLATKDataGetter</code>, which interfaces with feature and outcome tables to produce datasets suitable for modeling.</p>
+<h2 id="dlatkdatagetter-method-reference">DLATKDataGetter: Method Reference<a class="headerlink" href="#dlatkdatagetter-method-reference" title="Permanent link">&para;</a></h2>
+<h3 id="get_feature_tablesfeature_tablesnone-where"><code>get_feature_tables(feature_tables=None, where='')</code><a class="headerlink" href="#get_feature_tablesfeature_tablesnone-where" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong>
+Retrieves features for each query/message from one or more feature tables, optionally filtered by a SQL <code>where</code> clause.</p>
+<p><strong>Inputs:</strong>
+- <code>feature_tables</code> (list or str, optional): List of feature table names to use. If not provided, uses the instance’s <code>feature_tables</code>.
+- <code>where</code> (str, optional): SQL WHERE clause to filter rows.</p>
+<p><strong>Output:</strong>
+- Tuple:
+  - <code>features_dict</code>: <code>{query_id: [emb1, emb2, ...], ...}</code> (features for each query/message)
+  - <code>features_names</code>: <code>[[feat1, feat2, ...]_table1, [feat1, feat2, ...]_table2, ...]</code> (list of feature names per table)</p>
+<hr />
+<h3 id="get_long_featureswhere-qry_seq_time_id_tablenone"><code>get_long_features(where='', qry_seq_time_id_table=None)</code><a class="headerlink" href="#get_long_featureswhere-qry_seq_time_id_tablenone" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong>
+Builds a longitudinal (sequence/time) representation of features, grouped by sequence and ordered by time.</p>
+<p><strong>Inputs:</strong>
+- <code>where</code> (str, optional): SQL WHERE clause to filter messages.
+- <code>qry_seq_time_id_table</code> (str, optional): Table to use for mapping query IDs to sequence and time IDs. Defaults to <code>msg_table</code>.</p>
+<p><strong>Output:</strong>
+- Dict with keys:
+  - <code>'seq_id'</code>: <code>[sid1, sid2, ...]</code>
+  - <code>'time_ids'</code>: <code>[[t1, t2, ...]_sid1, [t1, t2, ...]_sid2, ...]</code>
+  - <code>'embeddings'</code>: <code>[[[emb1, emb2, ...]_t1, ...]_sid1, ...]</code>
+  - <code>'embeddings_names'</code>: <code>[[feat1, feat2, ...]_table1, ...]</code></p>
+<hr />
+<h3 id="get_outcomesoutcome_fieldsnone-correl_fieldnone-where"><code>get_outcomes(outcome_fields=None, correl_field=None, where='')</code><a class="headerlink" href="#get_outcomesoutcome_fieldsnone-correl_fieldnone-where" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong>
+Retrieves outcome values for each sequence or query, optionally filtered.</p>
+<p><strong>Inputs:</strong>
+- <code>outcome_fields</code> (list or str, optional): Outcome field(s) to retrieve. Defaults to instance’s <code>outcome_fields</code>.
+- <code>correl_field</code> (str, optional): Field to use for correlation (e.g., sequence or query ID).
+- <code>where</code> (str, optional): SQL WHERE clause.</p>
+<p><strong>Output:</strong>
+- Dict: <code>{seq_id: [outcome1, outcome2, ...], ...}</code></p>
+<hr />
+<h3 id="get_long_outcomesoutcome_fieldsnone-where"><code>get_long_outcomes(outcome_fields=None, where='')</code><a class="headerlink" href="#get_long_outcomesoutcome_fieldsnone-where" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong>
+Builds a longitudinal (sequence/time) representation of outcomes, grouped by sequence and ordered by time.</p>
+<p><strong>Inputs:</strong>
+- <code>outcome_fields</code> (list or str, optional): Outcome field(s) to retrieve.
+- <code>where</code> (str, optional): SQL WHERE clause.</p>
+<p><strong>Output:</strong>
+- Dict with keys:
+  - <code>'seq_id'</code>: <code>[sid1, sid2, ...]</code>
+  - <code>'time_ids'</code>: <code>[[t1, t2, ...]_sid1, ...]</code>
+  - <code>'outcomes'</code>: <code>[[[outcome1, ...]_t1, ...]_sid1, ...]</code>
+  - <code>'outcomes_names'</code>: <code>[outcome_name1, ...]</code></p>
+<hr />
+<h3 id="intersect_seqidslong_dict1-long_dict2"><code>intersect_seqids(long_dict1, long_dict2)</code><a class="headerlink" href="#intersect_seqidslong_dict1-long_dict2" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong>
+Aligns two longitudinal dictionaries (e.g., features and outcomes) to only include common sequence IDs.</p>
+<p><strong>Inputs:</strong>
+- <code>long_dict1</code>, <code>long_dict2</code>: Dicts with <code>'seq_id'</code> keys.</p>
+<p><strong>Output:</strong>
+- Tuple: <code>(long_dict1_aligned, long_dict2_aligned)</code> (both only contain common sequence IDs)</p>
+<hr />
+<h3 id="combine_features_and_outcomesoutcomes_correl_fieldnone-features_where-outcomes_where"><code>combine_features_and_outcomes(outcomes_correl_field=None, features_where='', outcomes_where='')</code><a class="headerlink" href="#combine_features_and_outcomesoutcomes_correl_fieldnone-features_where-outcomes_where" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong>
+Merges features and outcomes into a single data dictionary suitable for modeling.</p>
+<p><strong>Inputs:</strong>
+- <code>outcomes_correl_field</code> (str, optional): Field to use for correlating features and outcomes.
+- <code>features_where</code>, <code>outcomes_where</code> (str, optional): SQL WHERE clauses for filtering.</p>
+<p><strong>Output:</strong>
+- Dict with keys:
+  - <code>'seq_idx'</code>: <code>[seq_id1, ...]</code>
+  - <code>'time_ids'</code>: <code>[[t1, t2, ...], ...]</code>
+  - <code>'embeddings'</code>: <code>[[[emb1, ...], ...], ...]</code>
+  - <code>'labels'</code>: <code>[[label1, ...], ...]</code>
+  - <code>'query_ids'</code>: <code>[[qry_id1, ...], ...]</code></p>
+<hr />
+<h3 id="train_test_splitdataset_dict-test_ratio02-val_ratio00-stratifynone"><code>train_test_split(dataset_dict, test_ratio=0.2, val_ratio=0.0, stratify=None)</code><a class="headerlink" href="#train_test_splitdataset_dict-test_ratio02-val_ratio00-stratifynone" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong>
+Splits a dataset dictionary into train, validation, and test sets.</p>
+<p><strong>Inputs:</strong>
+- <code>dataset_dict</code> (dict): Data dictionary (as output by <code>combine_features_and_outcomes</code>).
+- <code>test_ratio</code> (float): Fraction for test set.
+- <code>val_ratio</code> (float): Fraction for validation set.
+- <code>stratify</code> (optional): Stratification labels.</p>
+<p><strong>Output:</strong>
+- Dict: <code>{'train_data': ..., 'val_data': ..., 'test_data': ...}</code> (each is a data dictionary)</p>
+<hr />
+<h3 id="n_fold_splitdataset_dict-longtype_encoder-fold_column"><code>n_fold_split(dataset_dict, longtype_encoder, fold_column)</code><a class="headerlink" href="#n_fold_splitdataset_dict-longtype_encoder-fold_column" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong>
+Splits the dataset into n folds for cross-validation, based on a fold column.</p>
+<p><strong>Inputs:</strong>
+- <code>dataset_dict</code> (dict): Data dictionary.
+- <code>longtype_encoder</code> (dict): Mapping of sequence/query IDs.
+- <code>fold_column</code> (str): Name of the column in the outcomes table indicating fold assignment.</p>
+<p><strong>Output:</strong>
+- Dict: Same as input, but with a <code>'folds'</code> key indicating fold assignment for each sequence.</p>
+<hr />
+<h2 id="example-usage">Example Usage<a class="headerlink" href="#example-usage" title="Permanent link">&para;</a></h2>
+<pre class="highlight"><code class="language-python">from src.dlatk_datapipeline import DLATKDataGetter
+
+# Initialize with table names and outcome fields
+getter = DLATKDataGetter(
+    msg_table='messages',
+    feature_tables=['features_table1', 'features_table2'],
+    outcome_table='outcomes',
+    outcome_fields=['pcl_score']
+)
+
+# Get features and outcomes
+features = getter.get_long_features()
+outcomes = getter.get_long_outcomes()
+
+# Align and merge
+features, outcomes = getter.intersect_seqids(features, outcomes)
+dataset = getter.combine_features_and_outcomes()</code></pre>
+<p>See also: <code>examples/ptsd_stop_forecasting/save_1_day_forecast_data_lang_selfreport_v6.2.py</code> for a full data preparation pipeline. </p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href=".." class="btn btn-neutral float-left" title="Home"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../datamodule/" class="btn btn-neutral float-right" title="Data Module">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href=".." style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../datamodule/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

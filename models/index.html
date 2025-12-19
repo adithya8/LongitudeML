@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Models - LongitudeML Documentation</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Models";
+        var mkdocs_page_input_path = "models.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> LongitudeML Documentation
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../data_pipeline/">Data Pipeline</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../datamodule/">Data Module</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Models</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#key-model-classes">Key Model Classes</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#recurrent">recurrent</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#forward-arguments">forward() Arguments</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#autoregressivetransformer">AutoRegressiveTransformer</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#forward-arguments_1">forward() Arguments</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#transformermodel">TransformerModel</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#forward-arguments_2">forward() Arguments</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#autoregressivelinear">AutoRegressiveLinear</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#forward-arguments_3">forward() Arguments</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#autoregressivelinear2">AutoRegressiveLinear2</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#forward-arguments_4">forward() Arguments</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#boelinear">BoELinear</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#forward-arguments_5">forward() Arguments</a>
+    </li>
+        </ul>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#example-usage">Example Usage</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../lightning_module/">Lightning Module</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../sklearn_trainer/">Sklearn Trainer</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../evaluation/">Evaluation</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../logger/">Logger</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../mi_args/">Arguments</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../examples/">Examples</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../utils/">Utils</a>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">LongitudeML Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Models</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="models-recurrent-transformer-and-linear-architectures">Models: Recurrent, Transformer, and Linear Architectures<a class="headerlink" href="#models-recurrent-transformer-and-linear-architectures" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>LongitudeML provides a variety of model architectures for sequence and time-series forecasting, including recurrent neural networks (GRU), transformer-based models, and linear baselines. These are implemented in <code>mi_model.py</code> and <code>mi_transformers.py</code>.</p>
+<h2 id="key-model-classes">Key Model Classes<a class="headerlink" href="#key-model-classes" title="Permanent link">&para;</a></h2>
+<h3 id="recurrent"><code>recurrent</code><a class="headerlink" href="#recurrent" title="Permanent link">&para;</a></h3>
+<p>A GRU-based recurrent model for sequence prediction, supporting multi-instance learning and masking for variable-length sequences.</p>
+<h4 id="forward-arguments"><code>forward()</code> Arguments<a class="headerlink" href="#forward-arguments" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>embeddings</code></td>
+<td>torch.Tensor</td>
+<td>Yes</td>
+<td>Input tensor of shape (batch_size, seq_len, input_size)</td>
+</tr>
+<tr>
+<td><code>hidden_rep</code></td>
+<td>torch.Tensor</td>
+<td>No</td>
+<td>Initial hidden state (num_layers * num_directions, batch_size, hidden_size)</td>
+</tr>
+<tr>
+<td><code>mask</code></td>
+<td>torch.Tensor</td>
+<td>No</td>
+<td>Boolean mask (batch_size, seq_len); 1=valid, 0=invalid</td>
+</tr>
+<tr>
+<td><code>predict_last_valid_hidden_state</code></td>
+<td>bool</td>
+<td>No</td>
+<td>If True, predict only for last valid timestep; else predict for all timesteps (default=True)</td>
+</tr>
+<tr>
+<td><code>**kwargs</code></td>
+<td>dict</td>
+<td>No</td>
+<td>Additional arguments (not typically used)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="autoregressivetransformer"><code>AutoRegressiveTransformer</code><a class="headerlink" href="#autoregressivetransformer" title="Permanent link">&para;</a></h3>
+<p>A transformer model for autoregressive sequence modeling, with support for custom positional encodings and multi-head attention.</p>
+<h4 id="forward-arguments_1"><code>forward()</code> Arguments<a class="headerlink" href="#forward-arguments_1" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>embeddings</code></td>
+<td>torch.Tensor</td>
+<td>Yes</td>
+<td>Input tensor of shape (batch_size, seq_len, input_size)</td>
+</tr>
+<tr>
+<td><code>mask</code></td>
+<td>torch.Tensor</td>
+<td>No</td>
+<td>Boolean mask (batch_size, seq_len); 1=padded, 0=valid</td>
+</tr>
+<tr>
+<td><code>predict_last_valid_hidden_state</code></td>
+<td>bool</td>
+<td>No</td>
+<td>If True, predict only for last valid timestep; else predict for all timesteps (default=True)</td>
+</tr>
+<tr>
+<td><code>**kwargs</code> (e.g., <code>time_ids</code>)</td>
+<td>dict</td>
+<td>No</td>
+<td>Additional arguments, e.g., <code>time_ids</code> for masking</td>
+</tr>
+</tbody>
+</table>
+<h3 id="transformermodel"><code>TransformerModel</code><a class="headerlink" href="#transformermodel" title="Permanent link">&para;</a></h3>
+<p>A flexible transformer implementation supporting sinusoidal, rotary, or no positional encoding, and configurable for different input/output dimensions.</p>
+<h4 id="forward-arguments_2"><code>forward()</code> Arguments<a class="headerlink" href="#forward-arguments_2" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>embeddings</code></td>
+<td>torch.Tensor</td>
+<td>Yes</td>
+<td>Input tensor of shape (batch_size, seq_len, input_dim)</td>
+</tr>
+<tr>
+<td><code>mask</code></td>
+<td>torch.Tensor</td>
+<td>No</td>
+<td>Attention mask (batch_size, 1, seq_len, seq_len); -inf for masked, 0 for unmasked</td>
+</tr>
+<tr>
+<td><code>**kwargs</code> (e.g., <code>time_ids</code>)</td>
+<td>dict</td>
+<td>No</td>
+<td>Additional arguments, e.g., <code>time_ids</code> for masking</td>
+</tr>
+</tbody>
+</table>
+<h3 id="autoregressivelinear"><code>AutoRegressiveLinear</code><a class="headerlink" href="#autoregressivelinear" title="Permanent link">&para;</a></h3>
+<p>Linear model using causal convolution for sequence prediction.</p>
+<h4 id="forward-arguments_3"><code>forward()</code> Arguments<a class="headerlink" href="#forward-arguments_3" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>embeddings</code></td>
+<td>torch.Tensor</td>
+<td>Yes</td>
+<td>Input tensor of shape (batch_size, seq_len, input_size)</td>
+</tr>
+<tr>
+<td><code>mask</code></td>
+<td>torch.Tensor</td>
+<td>Yes</td>
+<td>Boolean mask (batch_size, seq_len); 1=padded, 0=valid</td>
+</tr>
+<tr>
+<td><code>predict_last_valid_hidden_state</code></td>
+<td>bool</td>
+<td>No</td>
+<td>If True, predict only for last valid timestep; else predict for all timesteps (default=True)</td>
+</tr>
+<tr>
+<td><code>**kwargs</code></td>
+<td>dict</td>
+<td>No</td>
+<td>Additional arguments</td>
+</tr>
+</tbody>
+</table>
+<h3 id="autoregressivelinear2"><code>AutoRegressiveLinear2</code><a class="headerlink" href="#autoregressivelinear2" title="Permanent link">&para;</a></h3>
+<p>Linear model using sliding window for autoregressive prediction.</p>
+<h4 id="forward-arguments_4"><code>forward()</code> Arguments<a class="headerlink" href="#forward-arguments_4" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>embeddings</code></td>
+<td>torch.Tensor</td>
+<td>Yes</td>
+<td>Input tensor of shape (batch_size, seq_len, input_size)</td>
+</tr>
+<tr>
+<td><code>mask</code></td>
+<td>torch.Tensor</td>
+<td>No</td>
+<td>Boolean mask (batch_size, seq_len); 1=padded, 0=valid</td>
+</tr>
+<tr>
+<td><code>predict_last_valid_hidden_state</code></td>
+<td>bool</td>
+<td>No</td>
+<td>If True, predict only for last valid timestep; else predict for all timesteps (default=True)</td>
+</tr>
+<tr>
+<td><code>**kwargs</code></td>
+<td>dict</td>
+<td>No</td>
+<td>Additional arguments</td>
+</tr>
+</tbody>
+</table>
+<h3 id="boelinear"><code>BoELinear</code><a class="headerlink" href="#boelinear" title="Permanent link">&para;</a></h3>
+<p>Bag-of-Embeddings linear model, averages embeddings before linear projection.</p>
+<h4 id="forward-arguments_5"><code>forward()</code> Arguments<a class="headerlink" href="#forward-arguments_5" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>embeddings</code></td>
+<td>torch.Tensor</td>
+<td>Yes</td>
+<td>Input tensor of shape (batch_size, seq_len, input_size)</td>
+</tr>
+<tr>
+<td><code>mask</code></td>
+<td>torch.Tensor</td>
+<td>No</td>
+<td>Boolean mask (batch_size, seq_len); 1=padded, 0=valid</td>
+</tr>
+<tr>
+<td><code>predict_last_valid_hidden_state</code></td>
+<td>bool</td>
+<td>No</td>
+<td>If True, predict only for last valid timestep; else predict for all timesteps (default=True)</td>
+</tr>
+<tr>
+<td><code>**kwargs</code></td>
+<td>dict</td>
+<td>No</td>
+<td>Additional arguments</td>
+</tr>
+</tbody>
+</table>
+<h2 id="example-usage">Example Usage<a class="headerlink" href="#example-usage" title="Permanent link">&para;</a></h2>
+<pre class="highlight"><code class="language-python">from src import recurrent, AutoRegressiveTransformer, TransformerModel
+
+# Recurrent model
+model = recurrent(input_size=128, hidden_size=64, num_classes=1, num_layers=2)
+output = model(embeddings, mask=mask)
+
+# Transformer model
+tr_model = AutoRegressiveTransformer(
+    input_size=128, hidden_size=64, num_classes=1, num_layers=2, num_heads=4, max_len=100
+)
+output = tr_model(embeddings, mask=mask, time_ids=time_ids)
+
+# Linear baseline
+from src import AutoRegressiveLinear
+lin_model = AutoRegressiveLinear(input_size=128, hidden_size=64, num_classes=1)
+output = lin_model(embeddings, mask=mask)</code></pre>
+<p>See also: <code>examples/ptsd_stop_forecasting/run_PCL_forecast.py</code> for model instantiation and selection logic. </p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../datamodule/" class="btn btn-neutral float-left" title="Data Module"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../lightning_module/" class="btn btn-neutral float-right" title="Lightning Module">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../datamodule/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../lightning_module/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

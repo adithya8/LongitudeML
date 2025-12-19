@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Lightning Module - LongitudeML Documentation</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Lightning Module";
+        var mkdocs_page_input_path = "lightning_module.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> LongitudeML Documentation
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../data_pipeline/">Data Pipeline</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../datamodule/">Data Module</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../models/">Models</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Lightning Module</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#method-reference">Method Reference</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#milightningmoduleargs-model">MILightningModule(args, model)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#step-by-step-breakdown">Step-by-Step Breakdown</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#1-unpack-batch-inputs">1. Unpack Batch Inputs</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#2-label-processing-pre-forward">2. Label Processing (Pre-Forward)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#3-forward-pass">3. Forward Pass</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#4-label-processing-post-forward">4. Label Processing (Post-Forward)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#5-loss-computation">5. Loss Computation</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#6-metrics-calculation">6. Metrics Calculation</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#7-logging-and-output-storage">7. Logging and Output Storage</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#8-optimizer-step-training-only">8. Optimizer Step (Training Only)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#key-features">Key Features</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#example-usage">Example Usage</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../sklearn_trainer/">Sklearn Trainer</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../evaluation/">Evaluation</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../logger/">Logger</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../mi_args/">Arguments</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../examples/">Examples</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../utils/">Utils</a>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">LongitudeML Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Lightning Module</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="lightning-module-training-and-evaluation">Lightning Module: Training and Evaluation<a class="headerlink" href="#lightning-module-training-and-evaluation" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p><code>MILightningModule</code> is a PyTorch Lightning module that wraps a model and handles training, validation, and testing logic, including loss computation, metrics, and optimizer configuration.</p>
+<h2 id="method-reference">Method Reference<a class="headerlink" href="#method-reference" title="Permanent link">&para;</a></h2>
+<h3 id="milightningmoduleargs-model"><code>MILightningModule(args, model)</code><a class="headerlink" href="#milightningmoduleargs-model" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Wraps a model in a PyTorch Lightning module, handling training, validation, and testing logic, including loss computation, metrics, optimizer configuration, and logging.</p>
+<p><strong>Inputs:</strong><br />
+- <code>args</code>: Namespace or object containing all hyperparameters and configuration options (see <code>mi_args.py</code>).
+- <code>model</code>: A PyTorch model instance (recurrent, transformer, linear, etc.).</p>
+<p><strong>Output:</strong><br />
+- An object with the following key methods (all PyTorch Lightning conventions):
+  - <code>training_step(batch, batch_idx)</code>: Runs a training step, computes loss and metrics, logs results.
+  - <code>validation_step(batch, batch_idx)</code>: Runs a validation step, computes loss and metrics, logs results.
+  - <code>test_step(batch, batch_idx)</code>: Runs a test step, computes loss and metrics, logs results.
+  - <code>configure_optimizers()</code>: Returns optimizer (and optionally scheduler) for training.
+  - <code>predict_step(batch, batch_idx)</code>: (Optional) Runs a prediction step.
+  - <code>on_train_epoch_end</code>, <code>on_validation_epoch_end</code>, <code>on_test_epoch_end</code>: (Optional) Custom logic at the end of each epoch.</p>
+<p><strong>What it expects as input:</strong><br />
+- Batches as produced by the DataLoader (see <code>datamodule.md</code>), with keys like <code>'embeddings'</code>, <code>'outcomes'</code>, <code>'mask'</code>, etc.</p>
+<p><strong>What the output looks like:</strong><br />
+- Returns loss and logs metrics for each step/epoch.<br />
+- Stores predictions, targets, and metrics for later analysis.</p>
+<hr />
+<h2 id="step-by-step-breakdown">Step-by-Step Breakdown<a class="headerlink" href="#step-by-step-breakdown" title="Permanent link">&para;</a></h2>
+<p>The <code>MILightningModule</code> follows these main steps during training, validation, and testing:</p>
+<h3 id="1-unpack-batch-inputs">1. Unpack Batch Inputs<a class="headerlink" href="#1-unpack-batch-inputs" title="Permanent link">&para;</a></h3>
+<p><strong>What it is:</strong>
+- Extracts model inputs, labels, and sequence IDs from the batch dictionary.</p>
+<p><strong>Expected Input:</strong>
+- Batch dictionary from the DataLoader, with keys like <code>'embeddings'</code>, <code>'outcomes'</code>, <code>'mask'</code>, <code>'query_ids'</code>, <code>'seq_id'</code>, etc.</p>
+<p><strong>Output:</strong>
+- Model input dictionary, labels tensor, and sequence IDs.</p>
+<hr />
+<h3 id="2-label-processing-pre-forward">2. Label Processing (Pre-Forward)<a class="headerlink" href="#2-label-processing-pre-forward" title="Permanent link">&para;</a></h3>
+<p><strong>What it is:</strong>
+- Optionally shifts or interpolates labels for change prediction or time-shifted tasks, preparing them for loss computation.</p>
+<p><strong>Expected Input:</strong>
+- Labels tensor, batch metadata, and configuration flags (e.g., <code>do_shift</code>, <code>interpolated_output</code>).</p>
+<p><strong>Output:</strong>
+- Processed labels tensor (may be differenced or interpolated).</p>
+<hr />
+<h3 id="3-forward-pass">3. Forward Pass<a class="headerlink" href="#3-forward-pass" title="Permanent link">&para;</a></h3>
+<p><strong>What it is:</strong>
+- Passes the input batch through the model to obtain predictions.</p>
+<p><strong>Expected Input:</strong>
+- Model input dictionary (e.g., <code>'embeddings'</code>, <code>'mask'</code>, etc.)</p>
+<p><strong>Output:</strong>
+- Model output tensor (predictions for each sequence/timestep).</p>
+<hr />
+<h3 id="4-label-processing-post-forward">4. Label Processing (Post-Forward)<a class="headerlink" href="#4-label-processing-post-forward" title="Permanent link">&para;</a></h3>
+<p><strong>What it is:</strong>
+- Optionally "reshifts" or post-processes model outputs to align with the original label space (e.g., undoing differencing or interpolation for evaluation/metrics).</p>
+<p><strong>Expected Input:</strong>
+- Model output tensor, original labels tensor, mask tensor, and configuration flags.</p>
+<p><strong>Output:</strong>
+- Adjusted model output tensor, aligned with the original label space.</p>
+<hr />
+<h3 id="5-loss-computation">5. Loss Computation<a class="headerlink" href="#5-loss-computation" title="Permanent link">&para;</a></h3>
+<p><strong>What it is:</strong>
+- Computes the loss between model predictions and (processed) labels, using the specified loss function and reduction mode.</p>
+<p><strong>Expected Input:</strong>
+- Model output tensor, labels tensor, mask tensor, and loss configuration (e.g., reduction mode).</p>
+<p><strong>Output:</strong>
+- Scalar loss value (or tensor, if no reduction).</p>
+<hr />
+<h3 id="6-metrics-calculation">6. Metrics Calculation<a class="headerlink" href="#6-metrics-calculation" title="Permanent link">&para;</a></h3>
+<p><strong>What it is:</strong>
+- Computes evaluation metrics (e.g., MSE, SMAPE, Pearson, MAE) for the batch, using the specified reduction mode.</p>
+<p><strong>Expected Input:</strong>
+- Model output tensor, labels tensor, mask tensor, and metrics configuration.</p>
+<p><strong>Output:</strong>
+- Dictionary of metric values (e.g., <code>{'mse': ..., 'smape': ...}</code>)</p>
+<hr />
+<h3 id="7-logging-and-output-storage">7. Logging and Output Storage<a class="headerlink" href="#7-logging-and-output-storage" title="Permanent link">&para;</a></h3>
+<p><strong>What it is:</strong>
+- Logs loss and metrics to the logger, and stores predictions, labels, and metrics for later analysis.</p>
+<p><strong>Expected Input:</strong>
+- Loss value, metrics dictionary, batch metadata, and logger instance.</p>
+<p><strong>Output:</strong>
+- None (side effect: logs and stores results internally)</p>
+<hr />
+<h3 id="8-optimizer-step-training-only">8. Optimizer Step (Training Only)<a class="headerlink" href="#8-optimizer-step-training-only" title="Permanent link">&para;</a></h3>
+<p><strong>What it is:</strong>
+- Performs an optimizer step to update model parameters (if in training mode).</p>
+<p><strong>Expected Input:</strong>
+- Computed loss value, optimizer instance.</p>
+<p><strong>Output:</strong>
+- None (side effect: updates model parameters)</p>
+<hr />
+<h2 id="key-features">Key Features<a class="headerlink" href="#key-features" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Integrates any LongitudeML model (recurrent, transformer, linear, etc.)</li>
+<li>Supports custom loss functions and metrics (MSE, SMAPE, Pearson correlation, MAE)</li>
+<li>Handles sequence masking, out-of-sample indicators, and time-shifted labels</li>
+<li>Configures optimizers and learning rate schedulers</li>
+<li>Stores and logs predictions, losses, and metrics for each epoch</li>
+</ul>
+<h2 id="example-usage">Example Usage<a class="headerlink" href="#example-usage" title="Permanent link">&para;</a></h2>
+<pre class="highlight"><code class="language-python">from src import MILightningModule
+
+# Assume `args` is a namespace of hyperparameters and `model` is a model instance
+lightning_module = MILightningModule(args, model)
+
+# Use with PyTorch Lightning Trainer
+import pytorch_lightning as pl
+trainer = pl.Trainer(max_epochs=args.epochs, logger=logger)
+trainer.fit(lightning_module, datamodule=data_module)</code></pre>
+<p>See also: <code>examples/ptsd_stop_forecasting/run_PCL_forecast.py</code> for a full training pipeline. </p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../models/" class="btn btn-neutral float-left" title="Models"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../sklearn_trainer/" class="btn btn-neutral float-right" title="Sklearn Trainer">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../models/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../sklearn_trainer/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Data Module - LongitudeML Documentation</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Data Module";
+        var mkdocs_page_input_path = "datamodule.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> LongitudeML Documentation
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../data_pipeline/">Data Pipeline</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Data Module</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#method-reference">Method Reference</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#get_datasetdata">get_dataset(data)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#get_datasetdicttrain_data-val_datanone-test_datanone-val_foldsnone-test_foldsnone-fold_colfolds">get_datasetDict(train_data, val_data=None, test_data=None, val_folds=None, test_folds=None, fold_col='folds')</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#create_maskexamples">create_mask(examples)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#default_collate_fnfeatures-predict_last_valid_timestep-partition">default_collate_fn(features, predict_last_valid_timestep, partition)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#midataloadermoduledata_args-datasets-partion_processingtrue">MIDataLoaderModule(data_args, datasets, partion_processing=True)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#example-usage">Example Usage</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../models/">Models</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../lightning_module/">Lightning Module</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../sklearn_trainer/">Sklearn Trainer</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../evaluation/">Evaluation</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../logger/">Logger</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../mi_args/">Arguments</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../examples/">Examples</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../utils/">Utils</a>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">LongitudeML Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Data Module</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="data-module-dataset-preparation-and-loading">Data Module: Dataset Preparation and Loading<a class="headerlink" href="#data-module-dataset-preparation-and-loading" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>The data module provides utilities for converting raw data dictionaries into Huggingface Datasets, creating masks for missing data, and preparing PyTorch DataLoaders for model training and evaluation.</p>
+<h2 id="method-reference">Method Reference<a class="headerlink" href="#method-reference" title="Permanent link">&para;</a></h2>
+<h3 id="get_datasetdata"><code>get_dataset(data)</code><a class="headerlink" href="#get_datasetdata" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Converts a dictionary of data (with keys like <code>'embeddings'</code>, <code>'labels'</code>, etc.) into a Huggingface <code>Dataset</code> object. Automatically creates a <code>'time_ids'</code> field if not present.</p>
+<p><strong>Inputs:</strong><br />
+- <code>data</code> (dict): Dictionary with keys such as <code>'embeddings'</code>, <code>'labels'</code>, and optionally <code>'time_ids'</code>.</p>
+<p><strong>Output:</strong><br />
+- Huggingface <code>Dataset</code> object, with all fields as columns.</p>
+<hr />
+<h3 id="get_datasetdicttrain_data-val_datanone-test_datanone-val_foldsnone-test_foldsnone-fold_colfolds"><code>get_datasetDict(train_data, val_data=None, test_data=None, val_folds=None, test_folds=None, fold_col='folds')</code><a class="headerlink" href="#get_datasetdicttrain_data-val_datanone-test_datanone-val_foldsnone-test_foldsnone-fold_colfolds" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Creates a <code>DatasetDict</code> with 'train', 'val', and 'test' splits from input dictionaries or Datasets. Handles fold-based splitting and adds out-of-sample (<code>ooss_mask</code>) indicators.</p>
+<p><strong>Inputs:</strong><br />
+- <code>train_data</code>, <code>val_data</code>, <code>test_data</code> (dict or Dataset): Data for each split.
+- <code>val_folds</code>, <code>test_folds</code> (list, optional): Fold indices for validation/test splits.
+- <code>fold_col</code> (str): Name of the fold column.</p>
+<p><strong>Output:</strong><br />
+- Huggingface <code>DatasetDict</code> with keys <code>'train'</code>, <code>'val'</code>, <code>'test'</code> (as available), each a <code>Dataset</code> with added <code>'ooss_mask'</code> column.</p>
+<hr />
+<blockquote>
+<p><strong>OOTS and OOSS</strong></p>
+<ul>
+<li><strong>OOTS (Out-Of-Time Sample):</strong> Refers to data points (usually time points within a user’s sequence) that are held out from the training period and only appear in validation or test sets. This is used to evaluate how well a model generalizes to future/unseen time periods for the same users.</li>
+<li><strong>OOSS (Out-Of-Sequence Sample):</strong> Refers to entire user sequences that are held out from training and only appear in validation or test sets. This is used to evaluate how well a model generalizes to entirely new users (sequences) that were not seen during training.</li>
+</ul>
+<p>The <code>ooss_mask</code> column in each dataset split indicates whether a sample is an out-of-sequence sample (OOSS), i.e., from a user not present in the training set. If present, an <code>oots_mask</code> column would indicate out-of-time samples (OOTS), i.e., time points that occur after the training period for a given user.</p>
+</blockquote>
+<hr />
+<h3 id="create_maskexamples"><code>create_mask(examples)</code><a class="headerlink" href="#create_maskexamples" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Adds mask fields to each sequence for handling missing time points and infilling missing vectors/labels. Used with <code>.map()</code> on a Dataset.</p>
+<p><strong>Inputs:</strong><br />
+- <code>examples</code> (dict): A single example or batch from a Dataset, with <code>'time_ids'</code>, <code>'embeddings'</code>, <code>'labels'</code>, etc.</p>
+<p><strong>Output:</strong><br />
+- Modified example(s) with added <code>'mask'</code> and <code>'infill_mask'</code> fields, indicating valid/missing time points.</p>
+<hr />
+<h3 id="default_collate_fnfeatures-predict_last_valid_timestep-partition"><code>default_collate_fn(features, predict_last_valid_timestep, partition)</code><a class="headerlink" href="#default_collate_fnfeatures-predict_last_valid_timestep-partition" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Custom collate function for PyTorch DataLoader, handling padding, masking, and batching of variable-length sequences.</p>
+<p><strong>Inputs:</strong><br />
+- <code>features</code> (list of dict): List of examples from the Dataset.
+- <code>predict_last_valid_timestep</code> (bool): Whether to predict only the last valid timestep.
+- <code>partition</code> (str): One of <code>'train'</code>, <code>'val'</code>, or <code>'test'</code>.</p>
+<p><strong>Output:</strong><br />
+- Batch dictionary with all fields padded and batched appropriately for model input.</p>
+<hr />
+<h3 id="midataloadermoduledata_args-datasets-partion_processingtrue"><code>MIDataLoaderModule(data_args, datasets, partion_processing=True)</code><a class="headerlink" href="#midataloadermoduledata_args-datasets-partion_processingtrue" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+A PyTorch Lightning <code>LightningDataModule</code> that wraps the above utilities and provides <code>train_dataloader</code>, <code>val_dataloader</code>, and <code>test_dataloader</code> methods.</p>
+<p><strong>Inputs:</strong><br />
+- <code>data_args</code>: Namespace or object with data-related arguments (e.g., batch size, predict_last_valid_timestep).
+- <code>datasets</code> (dict): Dictionary with keys <code>'train'</code>, <code>'val'</code>, <code>'test'</code> (each a Dataset).
+- <code>partion_processing</code> (bool): Whether to use partition-specific collate functions.</p>
+<p><strong>Output:</strong><br />
+- An object with methods:
+  - <code>train_dataloader()</code>: Returns a DataLoader for training.
+  - <code>val_dataloader()</code>: Returns a DataLoader for validation.
+  - <code>test_dataloader()</code>: Returns a DataLoader for testing.</p>
+<hr />
+<h2 id="example-usage">Example Usage<a class="headerlink" href="#example-usage" title="Permanent link">&para;</a></h2>
+<pre class="highlight"><code class="language-python">from src.mi_datamodule import get_datasetDict, MIDataLoaderModule
+
+# Prepare datasets
+dataset_dict = get_datasetDict(train_data, val_data, test_data)
+
+# Create DataLoader module for PyTorch Lightning
+data_module = MIDataLoaderModule(args, dataset_dict)
+train_loader = data_module.train_dataloader()
+val_loader = data_module.val_dataloader()</code></pre>
+<p>See also: <code>examples/ptsd_stop_forecasting/run_PCL_forecast.py</code> for how these are used in practice. </p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../data_pipeline/" class="btn btn-neutral float-left" title="Data Pipeline"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../models/" class="btn btn-neutral float-right" title="Models">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../data_pipeline/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../models/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

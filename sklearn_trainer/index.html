@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Sklearn Trainer - LongitudeML Documentation</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Sklearn Trainer";
+        var mkdocs_page_input_path = "sklearn_trainer.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> LongitudeML Documentation
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../data_pipeline/">Data Pipeline</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../datamodule/">Data Module</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../models/">Models</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../lightning_module/">Lightning Module</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Sklearn Trainer</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#helper-functions">Helper Functions</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#collect_batch_dictdataloader">collect_batch_dict(dataloader)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#reshape_for_sklearnx-y-mask">reshape_for_sklearn(X, y, mask)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#reconstruct_from_sklearnpredictions-original_shape-valid_indices-mask">reconstruct_from_sklearn(predictions, original_shape, valid_indices, mask)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#method-reference">Method Reference</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#sklearnmoduleargs-model">SklearnModule(args, model)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fitdataloader">fit(dataloader)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#evaluatedataloader-splitval">evaluate(dataloader, split='val')</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#predictdataloader">predict(dataloader)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#compute_metricspreds-targets-mask">compute_metrics(preds, targets, mask)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#compute_exhaustive_metricspreds-targets-mask-oots_mask-ooss_mask">compute_exhaustive_metrics(preds, targets, mask, oots_mask, ooss_mask)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#sklearntraineroutput_dir-loggernone-trainer_params">SklearnTrainer(output_dir, logger=None, **trainer_params)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fitmodule-train_dataloader-val_dataloadernone">fit(module, train_dataloader, val_dataloader=None)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#validatemodule-val_dataloader">validate(module, val_dataloader)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#testmodule-test_dataloader">test(module, test_dataloader)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#predictmodule-predict_dataloader">predict(module, predict_dataloader)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#hyperparameter_searchmodule-param_grid-train_dataloader-val_dataloader-search_typegrid-n_iter10-cv3">hyperparameter_search(module, param_grid, train_dataloader, val_dataloader, search_type='grid', n_iter=10, cv=3)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#save_modelmodule-filename">save_model(module, filename)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#load_modelfilename">load_model(filename)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#available-sklearn-model-classes">Available Sklearn Model Classes</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#basic-models-no-history-windowing">Basic Models (No History Windowing)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#autoregressive-models-with-history-windowing">Autoregressive Models (With History Windowing)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#adapter-pattern-select_features-interface">Adapter Pattern: select_features Interface</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#interface-signature">Interface Signature</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#expected-shapes">Expected Shapes</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#using-pre-built-models">Using Pre-built Models</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#custom-model-implementation">Custom Model Implementation</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#key-features">Key Features</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#example-usage">Example Usage</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#basic-training-and-validation">Basic Training and Validation</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#autoregressive-model-with-history-windowing">Autoregressive Model with History Windowing</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#hyperparameter-search">Hyperparameter Search</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#model-saving-and-loading">Model Saving and Loading</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../evaluation/">Evaluation</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../logger/">Logger</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../mi_args/">Arguments</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../examples/">Examples</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../utils/">Utils</a>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">LongitudeML Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Sklearn Trainer</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="sklearn-trainer-scikit-learn-integration">Sklearn Trainer: Scikit-Learn Integration<a class="headerlink" href="#sklearn-trainer-scikit-learn-integration" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p><code>SklearnModule</code> and <code>SklearnTrainer</code> provide a PyTorch Lightning-like interface for scikit-learn models, allowing simple sklearn models (Ridge, Lasso, etc.) to work seamlessly with PyTorch DataLoaders. This is designed for models that have <code>fit()</code> and <code>predict()</code> methods and don't require gradient-based optimization.</p>
+<p>The sklearn trainer handles the conversion between PyTorch's 3D tensor format (batch_size, seq_len, features) and sklearn's 2D array format (n_samples, n_features), computes comprehensive evaluation metrics across multiple data subsets (OOTS/OOSS), and supports hyperparameter search via GridSearchCV and RandomizedSearchCV.</p>
+<p><strong>Key Design Pattern</strong>: Sklearn models must implement a <code>select_features()</code> method (adapter pattern) that decides which embeddings to use from the batch dictionary, mirroring how PyTorch models choose their inputs.</p>
+<p><strong>Module Organization</strong>: 
+- <strong><code>sklearn_trainer.py</code></strong>: Contains <code>SklearnModule</code> and <code>SklearnTrainer</code> classes for training orchestration
+- <strong><code>mi_sklearn_model.py</code></strong>: Contains sklearn model adapter classes (<code>RidgeForecastModel</code>, <code>LassoForecastModel</code>, <code>AutoRegressiveRidge</code>, <code>AutoRegressiveLasso</code>, etc.)</p>
+<hr />
+<h2 id="helper-functions">Helper Functions<a class="headerlink" href="#helper-functions" title="Permanent link">&para;</a></h2>
+<h3 id="collect_batch_dictdataloader"><code>collect_batch_dict(dataloader)</code><a class="headerlink" href="#collect_batch_dictdataloader" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Aggregates all batches from a PyTorch DataLoader into a single batch dictionary by concatenating tensors along the batch dimension.</p>
+<p><strong>Inputs:</strong><br />
+- <code>dataloader</code>: PyTorch DataLoader yielding dictionary batches with keys like <code>'embeddings_*'</code>, <code>'outcomes'</code>, <code>'outcomes_mask'</code>, <code>'oots_mask'</code>, <code>'ooss_mask'</code>, <code>'time_ids'</code>, <code>'seq_id'</code>, etc.</p>
+<p><strong>Output:</strong><br />
+- <code>Dict[str, torch.Tensor]</code>: Dictionary with the same keys as individual batches, where values are concatenated tensors over all batches along dim=0.</p>
+<hr />
+<h3 id="reshape_for_sklearnx-y-mask"><code>reshape_for_sklearn(X, y, mask)</code><a class="headerlink" href="#reshape_for_sklearnx-y-mask" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Converts 3D PyTorch tensors to 2D numpy arrays suitable for sklearn models, filtering out invalid samples (where mask is False).</p>
+<p><strong>Inputs:</strong><br />
+- <code>X</code>: <code>(batch_size, seq_len, input_dim)</code> tensor
+- <code>y</code>: <code>(batch_size, seq_len, num_outcomes)</code> tensor
+- <code>mask</code>: <code>(batch_size, seq_len, num_outcomes)</code> boolean tensor</p>
+<p><strong>Output:</strong><br />
+- <code>X_2d</code>: <code>(n_valid_samples, input_dim)</code> numpy array
+- <code>y_2d</code>: <code>(n_valid_samples, num_outcomes)</code> numpy array
+- <code>valid_indices</code>: List of <code>(batch_idx, time_idx)</code> tuples for reconstruction</p>
+<p><strong>Important Note on Multi-Outcome Models:</strong><br />
+This function uses <code>mask.any(dim=-1)</code> which includes timesteps where <strong>at least one</strong> outcome is valid. For multi-outcome models, this means:
+- If <code>outcomes_mask = [1, 1, 0]</code>, this sample <strong>is included</strong> in training
+- Sklearn will train on all outcomes, including the invalid one (with mask=0)
+- This is suboptimal for multi-outcome sklearn models as sklearn wastes effort predicting invalid outcomes</p>
+<p><strong>For single-outcome models</strong>: This is not an issue since there's only one outcome.<br />
+<strong>For multi-outcome models</strong>: Consider using separate sklearn models per outcome or modifying this function to use <code>mask.all(dim=-1)</code> to only include fully valid samples.</p>
+<hr />
+<h3 id="reconstruct_from_sklearnpredictions-original_shape-valid_indices-mask"><code>reconstruct_from_sklearn(predictions, original_shape, valid_indices, mask)</code><a class="headerlink" href="#reconstruct_from_sklearnpredictions-original_shape-valid_indices-mask" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Reconstructs 3D predictions from sklearn's 2D output, placing predictions at valid positions and filling invalid positions with zeros.</p>
+<p><strong>Inputs:</strong><br />
+- <code>predictions</code>: <code>(n_valid_samples, num_outcomes)</code> numpy array
+- <code>original_shape</code>: <code>(batch_size, seq_len, num_outcomes)</code> tuple
+- <code>valid_indices</code>: List of <code>(batch_idx, time_idx)</code> tuples
+- <code>mask</code>: Original mask tensor <code>(batch_size, seq_len, num_outcomes)</code></p>
+<p><strong>Output:</strong><br />
+- <code>preds_3d</code>: <code>(batch_size, seq_len, num_outcomes)</code> tensor</p>
+<hr />
+<h2 id="method-reference">Method Reference<a class="headerlink" href="#method-reference" title="Permanent link">&para;</a></h2>
+<h3 id="sklearnmoduleargs-model"><code>SklearnModule(args, model)</code><a class="headerlink" href="#sklearnmoduleargs-model" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Wraps a sklearn model to work with PyTorch DataLoaders, handling data reshaping, training, evaluation, and metric computation.</p>
+<p><strong>Inputs:</strong><br />
+- <code>args</code>: Namespace or dict containing hyperparameters and configuration (must include <code>metrics_reduction</code> for metric computation).
+- <code>model</code>: Sklearn model instance with <code>fit()</code> and <code>predict()</code> methods. <strong>Must also implement <code>select_features(batch_dict, args)</code></strong> that returns <code>(X_3d, y_3d, mask_3d)</code> tensors.</p>
+<p><strong>Output:</strong><br />
+- An object with the following key methods:
+  - <code>fit(dataloader)</code>: Train the sklearn model and compute training metrics
+  - <code>evaluate(dataloader, split='val')</code>: Evaluate and compute exhaustive metrics for OOTS/OOSS subsets
+  - <code>predict(dataloader)</code>: Make predictions without computing metrics (no labels needed)
+  - <code>compute_metrics(preds, targets, mask)</code>: Compute basic metrics (MSE, SMAPE, Pearson, MAE)
+  - <code>compute_exhaustive_metrics(preds, targets, mask, oots_mask, ooss_mask)</code>: Compute metrics for multiple subsets</p>
+<p><strong>What it expects as input:</strong><br />
+- DataLoaders producing batch dictionaries with keys like <code>'embeddings_*'</code>, <code>'outcomes'</code>, <code>'outcomes_mask'</code>, <code>'oots_mask'</code>, <code>'ooss_mask'</code>, etc. (see <a href="../datamodule/">datamodule.md</a>)</p>
+<p><strong>What the output looks like:</strong><br />
+- Stores predictions and metrics internally in <code>self.predictions</code> and <code>self.metrics</code> dictionaries
+- Returns metric dictionaries from <code>fit()</code> and <code>evaluate()</code> methods</p>
+<hr />
+<h3 id="fitdataloader"><code>fit(dataloader)</code><a class="headerlink" href="#fitdataloader" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Trains the sklearn model on data from the dataloader, computes training metrics, and stores predictions.</p>
+<p><strong>Inputs:</strong><br />
+- <code>dataloader</code>: PyTorch DataLoader</p>
+<p><strong>Output:</strong><br />
+- Dictionary with training metrics: <code>{'mse': ..., 'smape': ..., 'pearsonr': ..., 'mae': ...}</code></p>
+<hr />
+<h3 id="evaluatedataloader-splitval"><code>evaluate(dataloader, split='val')</code><a class="headerlink" href="#evaluatedataloader-splitval" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Evaluates the sklearn model and computes metrics for multiple data subsets based on <code>oots_mask</code> and <code>ooss_mask</code>:
+- <code>ws_wt</code>: within sample, within time (ooss==0 &amp; oots==0)
+- <code>valset</code>: all validation data (oots==1 OR ooss==1)
+- <code>ws_oots</code>: within sample, out of time (ooss==0 &amp; oots==1)
+- <code>wt_ooss</code>: within time, out of sample (ooss==1 &amp; oots==0)
+- <code>oots_ooss</code>: out of time, out of sample (ooss==1 &amp; oots==1)
+- <code>oots</code>: all out of time samples (oots==1)
+- <code>ooss</code>: all out of sample sequences (ooss==1)</p>
+<p><strong>Inputs:</strong><br />
+- <code>dataloader</code>: PyTorch DataLoader
+- <code>split</code>: <code>'val'</code> or <code>'test'</code> (used for storing predictions/metrics)</p>
+<p><strong>Output:</strong><br />
+- Dictionary with evaluation metrics for all subsets: <code>{'ws_wt_mse': ..., 'valset_mse': ..., 'ws_oots_mse': ..., ...}</code>. Empty subsets return <code>-1.0</code> for all metrics.</p>
+<hr />
+<h3 id="predictdataloader"><code>predict(dataloader)</code><a class="headerlink" href="#predictdataloader" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Makes predictions without computing metrics (labels are optional).</p>
+<p><strong>Inputs:</strong><br />
+- <code>dataloader</code>: PyTorch DataLoader (may not have labels)</p>
+<p><strong>Output:</strong><br />
+- Dictionary with keys: <code>'preds'</code>, <code>'outcomes'</code>, <code>'outcomes_mask'</code>, <code>'seq_id'</code>, <code>'time_ids'</code>, <code>'oots_mask'</code>, <code>'ooss_mask'</code></p>
+<hr />
+<h3 id="compute_metricspreds-targets-mask"><code>compute_metrics(preds, targets, mask)</code><a class="headerlink" href="#compute_metricspreds-targets-mask" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Computes evaluation metrics using <code>mi_eval</code> functions (MSE, SMAPE, Pearson correlation, MAE) with the reduction mode specified in <code>args.metrics_reduction</code>.</p>
+<p><strong>Inputs:</strong><br />
+- <code>preds</code>: <code>(batch_size, seq_len, num_outcomes)</code> tensor
+- <code>targets</code>: <code>(batch_size, seq_len, num_outcomes)</code> tensor
+- <code>mask</code>: <code>(batch_size, seq_len, num_outcomes)</code> tensor</p>
+<p><strong>Output:</strong><br />
+- Dictionary with metric values: <code>{'mse': ..., 'smape': ..., 'pearsonr': ..., 'mae': ...}</code></p>
+<p>See <a href="../evaluation/">evaluation.md</a> for details on reduction modes.</p>
+<hr />
+<h3 id="compute_exhaustive_metricspreds-targets-mask-oots_mask-ooss_mask"><code>compute_exhaustive_metrics(preds, targets, mask, oots_mask, ooss_mask)</code><a class="headerlink" href="#compute_exhaustive_metricspreds-targets-mask-oots_mask-ooss_mask" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Computes metrics for multiple data subsets based on <code>oots_mask</code> and <code>ooss_mask</code>, matching the behavior of <code>MILightningModule.validation_step</code>. Handles shape validation and correctly interprets time-wise <code>oots_mask</code> and sequence-wise <code>ooss_mask</code>.</p>
+<p><strong>Inputs:</strong><br />
+- <code>preds</code>: <code>(batch_size, seq_len, num_outcomes)</code> tensor
+- <code>targets</code>: <code>(batch_size, seq_len, num_outcomes)</code> tensor
+- <code>mask</code>: <code>(batch_size, seq_len, num_outcomes)</code> tensor
+- <code>oots_mask</code>: <code>(batch_size, seq_len)</code> tensor - out of time indicator (time-wise)
+- <code>ooss_mask</code>: <code>(batch_size,)</code> or <code>(batch_size, 1)</code> tensor - out of sample indicator (sequence-wise)</p>
+<p><strong>Output:</strong><br />
+- Dictionary with metrics for all subsets (same as <code>evaluate()</code> output)</p>
+<hr />
+<h3 id="sklearntraineroutput_dir-loggernone-trainer_params"><code>SklearnTrainer(output_dir, logger=None, **trainer_params)</code><a class="headerlink" href="#sklearntraineroutput_dir-loggernone-trainer_params" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Orchestrates training, validation, testing, and hyperparameter search for sklearn models, similar to PyTorch Lightning's Trainer.</p>
+<p><strong>Inputs:</strong><br />
+- <code>output_dir</code>: Directory path for saving models and results
+- <code>logger</code>: Optional logger instance (Comet, TensorBoard, etc.) for experiment tracking
+- <code>**trainer_params</code>: Additional trainer configuration parameters</p>
+<p><strong>Output:</strong><br />
+- An object with the following key methods:
+  - <code>fit(module, train_dataloader, val_dataloader=None)</code>: Train and optionally validate
+  - <code>validate(module, val_dataloader)</code>: Validate the model
+  - <code>test(module, test_dataloader)</code>: Test the model
+  - <code>predict(module, predict_dataloader)</code>: Make predictions
+  - <code>hyperparameter_search(...)</code>: Perform GridSearchCV or RandomizedSearchCV
+  - <code>save_model(module, filename)</code>: Save module to disk
+  - <code>load_model(filename)</code>: Load saved module from disk</p>
+<hr />
+<h3 id="fitmodule-train_dataloader-val_dataloadernone"><code>fit(module, train_dataloader, val_dataloader=None)</code><a class="headerlink" href="#fitmodule-train_dataloader-val_dataloadernone" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Trains the sklearn model and optionally validates it, logging metrics and saving the model.</p>
+<p><strong>Inputs:</strong><br />
+- <code>module</code>: <code>SklearnModule</code> instance
+- <code>train_dataloader</code>: Training data loader
+- <code>val_dataloader</code>: Optional validation data loader</p>
+<p><strong>Output:</strong><br />
+- Dictionary with keys <code>'train'</code> and <code>'val'</code>, each containing metric dictionaries</p>
+<hr />
+<h3 id="validatemodule-val_dataloader"><code>validate(module, val_dataloader)</code><a class="headerlink" href="#validatemodule-val_dataloader" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Validates the model (can be called anytime, not just after training).</p>
+<p><strong>Inputs:</strong><br />
+- <code>module</code>: <code>SklearnModule</code> instance
+- <code>val_dataloader</code>: Validation data loader</p>
+<p><strong>Output:</strong><br />
+- Dictionary with validation metrics (exhaustive subset metrics)</p>
+<hr />
+<h3 id="testmodule-test_dataloader"><code>test(module, test_dataloader)</code><a class="headerlink" href="#testmodule-test_dataloader" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Tests the model on the test set.</p>
+<p><strong>Inputs:</strong><br />
+- <code>module</code>: <code>SklearnModule</code> instance
+- <code>test_dataloader</code>: Test data loader</p>
+<p><strong>Output:</strong><br />
+- Dictionary with test metrics (exhaustive subset metrics)</p>
+<hr />
+<h3 id="predictmodule-predict_dataloader"><code>predict(module, predict_dataloader)</code><a class="headerlink" href="#predictmodule-predict_dataloader" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Makes predictions without labels.</p>
+<p><strong>Inputs:</strong><br />
+- <code>module</code>: <code>SklearnModule</code> instance
+- <code>predict_dataloader</code>: Data loader (may not have labels)</p>
+<p><strong>Output:</strong><br />
+- Dictionary with predictions and metadata</p>
+<hr />
+<h3 id="hyperparameter_searchmodule-param_grid-train_dataloader-val_dataloader-search_typegrid-n_iter10-cv3"><code>hyperparameter_search(module, param_grid, train_dataloader, val_dataloader, search_type='grid', n_iter=10, cv=3)</code><a class="headerlink" href="#hyperparameter_searchmodule-param_grid-train_dataloader-val_dataloader-search_typegrid-n_iter10-cv3" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Performs hyperparameter search using <code>GridSearchCV</code> or <code>RandomizedSearchCV</code>, evaluates the best model on the validation set, and saves it.</p>
+<p><strong>Inputs:</strong><br />
+- <code>module</code>: <code>SklearnModule</code> instance (will be cloned internally)
+- <code>param_grid</code>: Dictionary of parameter names to lists of values (e.g., <code>{'alpha': [0.1, 1.0, 10.0]}</code>)
+- <code>train_dataloader</code>: Training data loader
+- <code>val_dataloader</code>: Validation data loader
+- <code>search_type</code>: <code>'grid'</code> or <code>'random'</code>
+- <code>n_iter</code>: Number of iterations for random search
+- <code>cv</code>: Number of cross-validation folds</p>
+<p><strong>Output:</strong><br />
+- <code>SklearnModule</code> instance with the best model (from <code>search.best_estimator_</code>)</p>
+<hr />
+<h3 id="save_modelmodule-filename"><code>save_model(module, filename)</code><a class="headerlink" href="#save_modelmodule-filename" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Saves the module (including the sklearn model, args, metrics, and predictions) to disk. Uses <code>output_dir/project_name/experiment_key/</code> structure when logger is available, otherwise saves to <code>output_dir/</code>.</p>
+<p><strong>Inputs:</strong><br />
+- <code>module</code>: <code>SklearnModule</code> instance
+- <code>filename</code>: Name of the file to save (e.g., <code>'final_model.pkl'</code>)</p>
+<p><strong>Output:</strong><br />
+- None (side effect: saves to disk)</p>
+<hr />
+<h3 id="load_modelfilename"><code>load_model(filename)</code><a class="headerlink" href="#load_modelfilename" title="Permanent link">&para;</a></h3>
+<p><strong>What it does:</strong><br />
+Loads a saved module from disk, reconstructing the <code>SklearnModule</code> with the saved model, args, metrics, and predictions.</p>
+<p><strong>Inputs:</strong><br />
+- <code>filename</code>: Name of the file to load</p>
+<p><strong>Output:</strong><br />
+- <code>SklearnModule</code> instance</p>
+<hr />
+<h2 id="available-sklearn-model-classes">Available Sklearn Model Classes<a class="headerlink" href="#available-sklearn-model-classes" title="Permanent link">&para;</a></h2>
+<p>Pre-built sklearn model adapters are available in <code>mi_sklearn_model.py</code>:</p>
+<h3 id="basic-models-no-history-windowing">Basic Models (No History Windowing)<a class="headerlink" href="#basic-models-no-history-windowing" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>RidgeForecastModel</code></strong>: Ridge regression adapter that selects embeddings from batch dictionary</li>
+<li><strong><code>LassoForecastModel</code></strong>: Lasso regression adapter with the same feature selection logic</li>
+</ul>
+<h3 id="autoregressive-models-with-history-windowing">Autoregressive Models (With History Windowing)<a class="headerlink" href="#autoregressive-models-with-history-windowing" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>AutoRegressiveRidge</code></strong>: Ridge regression with sliding window history (uses <code>args.max_len</code>)</li>
+<li><strong><code>AutoRegressiveLasso</code></strong>: Lasso regression with sliding window history (uses <code>args.max_len</code>)</li>
+</ul>
+<p>These models automatically handle history windowing when <code>args.max_len &gt; 1</code>, expanding each timestep's features to include the current and previous <code>max_len - 1</code> timesteps.</p>
+<hr />
+<h2 id="adapter-pattern-select_features-interface">Adapter Pattern: <code>select_features</code> Interface<a class="headerlink" href="#adapter-pattern-select_features-interface" title="Permanent link">&para;</a></h2>
+<p>Sklearn models used with <code>SklearnModule</code> must implement a <code>select_features()</code> method that defines how to extract input features, targets, and masks from the aggregated batch dictionary. This mirrors the PyTorch design where the model decides which <code>embeddings_*</code> keys to use.</p>
+<h3 id="interface-signature">Interface Signature<a class="headerlink" href="#interface-signature" title="Permanent link">&para;</a></h3>
+<pre class="highlight"><code class="language-python">def select_features(self, batch_dict: Dict[str, torch.Tensor], args) -&gt; Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Args:
+        batch_dict: Dictionary with keys like 'embeddings_*', 'outcomes', 'outcomes_mask', etc.
+        args: Namespace with configuration
+
+    Returns:
+        X_3d: (batch_size, seq_len, input_dim) tensor
+        y_3d: (batch_size, seq_len, num_outcomes) tensor
+        mask_3d: (batch_size, seq_len, num_outcomes) boolean tensor
+    """</code></pre>
+<h3 id="expected-shapes">Expected Shapes<a class="headerlink" href="#expected-shapes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>X_3d</code>: <code>(batch_size, seq_len, input_dim)</code> - Input features</li>
+<li><code>y_3d</code>: <code>(batch_size, seq_len, num_outcomes)</code> - Target outcomes</li>
+<li><code>mask_3d</code>: <code>(batch_size, seq_len, num_outcomes)</code> - Boolean mask indicating valid samples</li>
+</ul>
+<h3 id="using-pre-built-models">Using Pre-built Models<a class="headerlink" href="#using-pre-built-models" title="Permanent link">&para;</a></h3>
+<p>The easiest way to use sklearn models is to import the pre-built adapters:</p>
+<pre class="highlight"><code class="language-python">from src import RidgeForecastModel, AutoRegressiveRidge, SklearnModule, SklearnTrainer
+
+# Basic Ridge model
+model = RidgeForecastModel(alpha=1.0, random_state=42)
+
+# Autoregressive Ridge with 7-day history
+args.max_len = 7
+model_ar = AutoRegressiveRidge(alpha=1.0, random_state=42)</code></pre>
+<h3 id="custom-model-implementation">Custom Model Implementation<a class="headerlink" href="#custom-model-implementation" title="Permanent link">&para;</a></h3>
+<p>You can also create your own adapter by implementing <code>select_features()</code>:</p>
+<pre class="highlight"><code class="language-python">from sklearn.linear_model import Ridge
+
+class CustomRidgeModel(Ridge):
+    """Custom adapter that selects specific embeddings."""
+
+    def select_features(self, batch_dict, args):
+        # Your custom feature selection logic
+        X_3d = batch_dict["embeddings_lang_z"]
+        y_3d = batch_dict["outcomes"]
+        mask_3d = batch_dict["outcomes_mask"]
+        return X_3d, y_3d, mask_3d</code></pre>
+<hr />
+<h2 id="key-features">Key Features<a class="headerlink" href="#key-features" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>PyTorch DataLoader Integration</strong>: Works seamlessly with PyTorch DataLoaders, aggregating batches automatically</li>
+<li><strong>3D to 2D Conversion</strong>: Handles reshaping between PyTorch's 3D tensor format and sklearn's 2D array format</li>
+<li><strong>Exhaustive Metric Computation</strong>: Computes metrics for multiple OOTS/OOSS subsets, matching <code>MILightningModule</code> behavior</li>
+<li><strong>Hyperparameter Search</strong>: Supports <code>GridSearchCV</code> and <code>RandomizedSearchCV</code> for hyperparameter tuning</li>
+<li><strong>Model Persistence</strong>: Saves and loads models with structured paths (<code>output_dir/project_name/experiment_key/</code>)</li>
+<li><strong>Logging Integration</strong>: Works with Comet, TensorBoard, and other loggers for experiment tracking</li>
+<li><strong>Adapter Pattern</strong>: Flexible feature selection via <code>select_features()</code> method</li>
+<li><strong>Multi-Outcome Warning</strong>: Warns users about potential issues with multi-outcome models</li>
+</ul>
+<hr />
+<h2 id="example-usage">Example Usage<a class="headerlink" href="#example-usage" title="Permanent link">&para;</a></h2>
+<h3 id="basic-training-and-validation">Basic Training and Validation<a class="headerlink" href="#basic-training-and-validation" title="Permanent link">&para;</a></h3>
+<pre class="highlight"><code class="language-python">from src import (
+    SklearnModule, SklearnTrainer, 
+    RidgeForecastModel, AutoRegressiveRidge,
+    get_default_args, get_logger, get_datasetDict, MIDataLoaderModule
+)
+from datasets import load_from_disk
+
+# Setup
+args = get_default_args()
+data = load_from_disk(args.data_dir)
+datasetDict = get_datasetDict(train_data=data, val_folds=args.val_folds)
+for key in datasetDict:
+    datasetDict[key] = datasetDict[key].with_format('torch')
+
+dataloaderModule = MIDataLoaderModule(args, datasetDict)
+logger = get_logger('comet', workspace=args.workspace, project_name=args.project_name, 
+                    experiment_name=args.experiment_name, save_dir=args.output_dir)
+
+# Create model and module (using pre-built RidgeForecastModel)
+model = RidgeForecastModel(alpha=args.weight_decay, random_state=args.seed)
+module = SklearnModule(args, model)
+trainer = SklearnTrainer(output_dir=args.output_dir, logger=logger)
+
+# Train and validate
+results = trainer.fit(
+    module,
+    train_dataloader=dataloaderModule.train_dataloader(),
+    val_dataloader=dataloaderModule.val_dataloader()
+)
+
+print(f"Training metrics: {results['train']}")
+print(f"Validation metrics: {results['val']}")
+
+# Test
+if dataloaderModule.test_dataloader():
+    test_results = trainer.test(module, dataloaderModule.test_dataloader())
+    print(f"Test metrics: {test_results}")</code></pre>
+<h3 id="autoregressive-model-with-history-windowing">Autoregressive Model with History Windowing<a class="headerlink" href="#autoregressive-model-with-history-windowing" title="Permanent link">&para;</a></h3>
+<pre class="highlight"><code class="language-python">from src import AutoRegressiveRidge, SklearnModule, SklearnTrainer
+
+# Set history window size
+args.max_len = 7  # Use 7-day history
+
+# Create autoregressive model
+model = AutoRegressiveRidge(alpha=args.weight_decay, random_state=args.seed)
+module = SklearnModule(args, model)
+trainer = SklearnTrainer(output_dir=args.output_dir, logger=logger)
+
+# Works exactly like regular sklearn trainer!
+results = trainer.fit(
+    module,
+    train_dataloader=dataloaderModule.train_dataloader(),
+    val_dataloader=dataloaderModule.val_dataloader()
+)</code></pre>
+<h3 id="hyperparameter-search">Hyperparameter Search<a class="headerlink" href="#hyperparameter-search" title="Permanent link">&para;</a></h3>
+<pre class="highlight"><code class="language-python"># Define parameter grid
+param_grid = {
+    'alpha': [0.1, 1.0, 10.0, 100.0]
+}
+
+# Run grid search
+best_module = trainer.hyperparameter_search(
+    module,
+    param_grid,
+    dataloaderModule.train_dataloader(),
+    dataloaderModule.val_dataloader(),
+    search_type='grid',
+    cv=3
+)
+
+print(f"Best validation metrics: {best_module.metrics['val']}")</code></pre>
+<h3 id="model-saving-and-loading">Model Saving and Loading<a class="headerlink" href="#model-saving-and-loading" title="Permanent link">&para;</a></h3>
+<pre class="highlight"><code class="language-python"># Save model
+trainer.save_model(module, 'final_model.pkl')
+
+# Load model later
+loaded_module = trainer.load_model('final_model.pkl')</code></pre>
+<p>See also: 
+- <code>examples/ptsd_stop_forecasting/test_sklearn_trainer.py</code> for complete working examples with Ridge and Lasso models
+- <code>src/mi_sklearn_model.py</code> for all available sklearn model adapter classes</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../lightning_module/" class="btn btn-neutral float-left" title="Lightning Module"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../evaluation/" class="btn btn-neutral float-right" title="Evaluation">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../lightning_module/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../evaluation/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
