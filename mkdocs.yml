@@ -1,0 +1,33 @@
+site_name: LongitudeML Documentation
+site_description: Machine learning framework for longitudinal forecasting, particularly suited for time-series and sequence prediction tasks in health and behavioral domains.
+
+theme:
+  name: readthedocs
+  repo_url: https://github.com/adithya8/LongitudeML
+  repo_name: LongitudeML
+
+nav:
+  - Home: index.md
+  - Data Pipeline: data_pipeline.md
+  - Data Module: datamodule.md
+  - Models: models.md
+  - Lightning Module: lightning_module.md
+  - Sklearn Trainer: sklearn_trainer.md
+  - Evaluation: evaluation.md
+  - Logger: logger.md
+  - Arguments: mi_args.md
+  - Examples: examples.md
+  - Utils: utils.md
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - toc:
+      permalink: true
+  - codehilite
+  - fenced_code
+
+plugins:
+  - search
+

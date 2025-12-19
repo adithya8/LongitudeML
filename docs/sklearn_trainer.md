@@ -8,6 +8,10 @@ The sklearn trainer handles the conversion between PyTorch's 3D tensor format (b
 
 **Key Design Pattern**: Sklearn models must implement a `select_features()` method (adapter pattern) that decides which embeddings to use from the batch dictionary, mirroring how PyTorch models choose their inputs.
 
+**Module Organization**: 
+- **`sklearn_trainer.py`**: Contains `SklearnModule` and `SklearnTrainer` classes for training orchestration
+- **`mi_sklearn_model.py`**: Contains sklearn model adapter classes (`RidgeForecastModel`, `LassoForecastModel`, `AutoRegressiveRidge`, `AutoRegressiveLasso`, etc.)
+
 ---
 
 ## Helper Functions
@@ -284,6 +288,22 @@ Loads a saved module from disk, reconstructing the `SklearnModule` with the save
 
 ---
 
+## Available Sklearn Model Classes
+
+Pre-built sklearn model adapters are available in `mi_sklearn_model.py`:
+
+### Basic Models (No History Windowing)
+- **`RidgeForecastModel`**: Ridge regression adapter that selects embeddings from batch dictionary
+- **`LassoForecastModel`**: Lasso regression adapter with the same feature selection logic
+
+### Autoregressive Models (With History Windowing)
+- **`AutoRegressiveRidge`**: Ridge regression with sliding window history (uses `args.max_len`)
+- **`AutoRegressiveLasso`**: Lasso regression with sliding window history (uses `args.max_len`)
+
+These models automatically handle history windowing when `args.max_len > 1`, expanding each timestep's features to include the current and previous `max_len - 1` timesteps.
+
+---
+
 ## Adapter Pattern: `select_features` Interface
 
 Sklearn models used with `SklearnModule` must implement a `select_features()` method that defines how to extract input features, targets, and masks from the aggregated batch dictionary. This mirrors the PyTorch design where the model decides which `embeddings_*` keys to use.
@@ -309,42 +329,36 @@ def select_features(self, batch_dict: Dict[str, torch.Tensor], args) -> Tuple[to
 - `y_3d`: `(batch_size, seq_len, num_outcomes)` - Target outcomes
 - `mask_3d`: `(batch_size, seq_len, num_outcomes)` - Boolean mask indicating valid samples
 
-### Example Implementation
+### Using Pre-built Models
+
+The easiest way to use sklearn models is to import the pre-built adapters:
+
+```python
+from src import RidgeForecastModel, AutoRegressiveRidge, SklearnModule, SklearnTrainer
+
+# Basic Ridge model
+model = RidgeForecastModel(alpha=1.0, random_state=42)
+
+# Autoregressive Ridge with 7-day history
+args.max_len = 7
+model_ar = AutoRegressiveRidge(alpha=1.0, random_state=42)
+```
+
+### Custom Model Implementation
+
+You can also create your own adapter by implementing `select_features()`:
 
 ```python
 from sklearn.linear_model import Ridge
 
-class RidgeForecastModel(Ridge):
-    """Example adapter that selects language embeddings."""
+class CustomRidgeModel(Ridge):
+    """Custom adapter that selects specific embeddings."""
     
     def select_features(self, batch_dict, args):
-        # Prefer language embeddings, fallback to first available
-        preferred_keys = [
-            "embeddings_lang_z",
-            "embeddings_lang",
-            "embeddings_subscales_z",
-            "embeddings_subscales",
-        ]
-        
-        embeddings_key = None
-        for k in preferred_keys:
-            if k in batch_dict:
-                embeddings_key = k
-                break
-        
-        if embeddings_key is None:
-            available = [k for k in batch_dict.keys() if k.startswith("embeddings")]
-            if len(available) == 0:
-                raise KeyError(f"No embeddings_* keys found in batch_dict")
-            embeddings_key = available[0]
-        
-        if "outcomes" not in batch_dict or "outcomes_mask" not in batch_dict:
-            raise KeyError("Expected 'outcomes' and 'outcomes_mask' in batch_dict")
-        
-        X_3d = batch_dict[embeddings_key]
+        # Your custom feature selection logic
+        X_3d = batch_dict["embeddings_lang_z"]
         y_3d = batch_dict["outcomes"]
         mask_3d = batch_dict["outcomes_mask"]
-        
         return X_3d, y_3d, mask_3d
 ```
 
@@ -368,23 +382,12 @@ class RidgeForecastModel(Ridge):
 ### Basic Training and Validation
 
 ```python
-from src import SklearnModule, SklearnTrainer, get_default_args, get_logger, get_datasetDict, MIDataLoaderModule
-from sklearn.linear_model import Ridge
+from src import (
+    SklearnModule, SklearnTrainer, 
+    RidgeForecastModel, AutoRegressiveRidge,
+    get_default_args, get_logger, get_datasetDict, MIDataLoaderModule
+)
 from datasets import load_from_disk
-
-# Define adapter class
-class RidgeForecastModel(Ridge):
-    def select_features(self, batch_dict, args):
-        # Select embeddings_lang_z if available
-        if "embeddings_lang_z" in batch_dict:
-            X_3d = batch_dict["embeddings_lang_z"]
-        else:
-            # Fallback logic...
-            X_3d = batch_dict[list(batch_dict.keys())[0]]
-        
-        y_3d = batch_dict["outcomes"]
-        mask_3d = batch_dict["outcomes_mask"]
-        return X_3d, y_3d, mask_3d
 
 # Setup
 args = get_default_args()
@@ -397,7 +400,7 @@ dataloaderModule = MIDataLoaderModule(args, datasetDict)
 logger = get_logger('comet', workspace=args.workspace, project_name=args.project_name, 
                     experiment_name=args.experiment_name, save_dir=args.output_dir)
 
-# Create model and module
+# Create model and module (using pre-built RidgeForecastModel)
 model = RidgeForecastModel(alpha=args.weight_decay, random_state=args.seed)
 module = SklearnModule(args, model)
 trainer = SklearnTrainer(output_dir=args.output_dir, logger=logger)
@@ -416,6 +419,27 @@ print(f"Validation metrics: {results['val']}")
 if dataloaderModule.test_dataloader():
     test_results = trainer.test(module, dataloaderModule.test_dataloader())
     print(f"Test metrics: {test_results}")
+```
+
+### Autoregressive Model with History Windowing
+
+```python
+from src import AutoRegressiveRidge, SklearnModule, SklearnTrainer
+
+# Set history window size
+args.max_len = 7  # Use 7-day history
+
+# Create autoregressive model
+model = AutoRegressiveRidge(alpha=args.weight_decay, random_state=args.seed)
+module = SklearnModule(args, model)
+trainer = SklearnTrainer(output_dir=args.output_dir, logger=logger)
+
+# Works exactly like regular sklearn trainer!
+results = trainer.fit(
+    module,
+    train_dataloader=dataloaderModule.train_dataloader(),
+    val_dataloader=dataloaderModule.val_dataloader()
+)
 ```
 
 ### Hyperparameter Search
@@ -449,5 +473,7 @@ trainer.save_model(module, 'final_model.pkl')
 loaded_module = trainer.load_model('final_model.pkl')
 ```
 
-See also: `examples/ptsd_stop_forecasting/test_sklearn_trainer.py` for complete working examples with Ridge and Lasso models.
+See also: 
+- `examples/ptsd_stop_forecasting/test_sklearn_trainer.py` for complete working examples with Ridge and Lasso models
+- `src/mi_sklearn_model.py` for all available sklearn model adapter classes
 

@@ -54,11 +54,16 @@ See [examples.md](docs/examples.md) and the `examples/` folder for full scripts 
 
 ## Documentation
 
+📚 **Full documentation is available at: [https://LongitudeML.github.io](https://LongitudeML.github.io)**
+
+### Quick Links
+
 - [Project Index](docs/index.md): Overview and navigation
 - [Data Pipeline](docs/data_pipeline.md): Data extraction and processing
 - [Data Module](docs/datamodule.md): Dataset and DataLoader setup
 - [Models](docs/models.md): Model architectures and usage
 - [Lightning Module](docs/lightning_module.md): Training and evaluation workflow
+- [Sklearn Trainer](docs/sklearn_trainer.md): Scikit-learn model integration
 - [Evaluation](docs/evaluation.md): Metrics and reduction modes
 - [Logger](docs/logger.md): Experiment tracking
 - [Arguments](docs/mi_args.md): All configuration options

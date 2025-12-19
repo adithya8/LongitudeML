@@ -9,4 +9,8 @@ from .mi_utils import get_logger
 from .dlatk_datapipeline import DLATKDataGetter
 from .mi_eval import mi_mse, mi_smape, mi_pearsonr
 from .sklearn_trainer import SklearnModule, SklearnTrainer
+from .mi_sklearn_model import (
+    RidgeForecastModel, LassoForecastModel,
+    AutoRegressiveSklearnBase, AutoRegressiveRidge, AutoRegressiveLasso
+)
 ## TODO: Think about the eval script and functions

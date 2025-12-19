@@ -868,6 +868,3 @@ class SklearnTrainer:
         print(f"Model loaded from {filepath}")
         
         return module
-
-
-
