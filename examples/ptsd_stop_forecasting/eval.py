@@ -39,6 +39,40 @@ def compute_mse(label:np.ndarray, pred:np.ndarray, outcome_mask:np.ndarray=None)
     return mse_value
 
 
+def compute_mae(label:np.ndarray, pred:np.ndarray, outcome_mask:np.ndarray=None):
+    """
+        Calculate MAE loss for a single outcome. \n
+        MAE = mean(|label - pred|) \n
+        Only computed for valid timesteps denoted by outcome_mask.
+        
+        Inputs
+        --------
+        label: np.ndarray of shape (num_timesteps, 1) or (num_timesteps, ) \n
+        pred: np.ndarray of shape (num_timesteps, 1) or (num_timesteps, ) \n
+        outcome_mask: np.ndarray of shape (num_timesteps, 1) or (num_timesteps, ). Value of 0 indicates invalid timestep.
+        
+        Returns
+        --------
+        mae_value: float - MAE value.
+    """
+    assert label.shape == pred.shape, "Shape mismatch between label ({}) and pred ({}).".format(label.shape, pred.shape)
+    assert label.shape == outcome_mask.shape, "Shape mismatch between label ({}) and outcome_mask ({}).".format(label.shape, outcome_mask.shape)
+    assert len(label.shape) == 1 or (len(label.shape) == 2 and label.shape[1] == 1), "Invalid shape for label ({}).".format(label.shape)
+    assert len(pred.shape) == 1 or (len(pred.shape) == 2 and pred.shape[1] == 1), "Invalid shape for pred ({}).".format(pred.shape)
+    assert len(outcome_mask.shape) == 1 or (len(outcome_mask.shape) == 2 and outcome_mask.shape[1] == 1), "Invalid shape for outcome_mask ({}).".format(outcome_mask.shape)
+    assert (outcome_mask is not None and np.sum(outcome_mask) >= 1) or outcome_mask is None, "Insufficient valid timesteps for Mean Absolute Error."
+    
+    # Change everything to (N, )
+    label = label.reshape(-1, )
+    pred = pred.reshape(-1, )
+    outcome_mask = outcome_mask.reshape(-1, )
+    
+    # Calculate MAE
+    mae_value = np.mean(np.abs(label - pred)[outcome_mask == 1])
+    
+    return mae_value
+
+
 def compute_pearsonr(label:np.ndarray, pred:np.ndarray, outcome_mask:np.ndarray=None):
     """
         Calculate Pearson correlation coefficient for a single outcome. \n
@@ -130,22 +164,26 @@ def within_seq_metric(metric:Union[str, callable], seq_ids:List, labels:List[Lis
         within_seq_metric_dict:dict - Contains the mean, median, and the metrics for the entire sequence. 
     """
     # Check whether the metric is a callable defined as functions above or is in ["mse", "smape", "pearson"]
-    assert (isinstance(metric, str) and metric in ["mse", "smape", "pearsonr"]) or callable(metric), "Invalid metric. Choose from ['mse', 'smape', 'pearsonr'] or provide a callable function."
+    assert (isinstance(metric, str) and metric in ["mse", "smape", "pearsonr", "mae"]) or callable(metric), "Invalid metric. Choose from ['mse', 'smape', 'pearsonr', 'mae'] or provide a callable function."
 
     if isinstance(metric, str):
-        if metric == "mse": 
+        if metric.endswith("mse"): 
             metric_func = compute_mse
-        elif metric == "smape":
+        elif metric.endswith("smape"):
             metric_func = compute_smape
-        elif metric == "pearsonr":
+        elif metric.endswith("pearsonr"):
             metric_func = compute_pearsonr
+        elif metric.endswith("mae"):
+            metric_func = compute_mae
         metric_name = metric
     else:
         metric_name = metric.__name__.split("_")[-1]
-        assert metric_name in ["mse", "smape", "pearsonr"], "Invalid metric function. Choose from ['mse', 'smape', 'pearsonr']"
+        assert metric_name in ["mse", "smape", "pearsonr", "mae"], "Invalid metric function. Choose from ['mse', 'smape', 'pearsonr', 'mae]"
     
     metric_values_dict = {} # Dictionary to store metric values for each sequence
     mean_metric_value = 0.0
+    weighted_mean_metric_value_nr = 0.0
+    weighted_mean_metric_value_dr = 0.0
     if metric_name == "pearsonr":
         # Collect pearson values and p-values for each sequence
         # aggregated p_value is the harmonic mean of p-values
@@ -163,7 +201,10 @@ def within_seq_metric(metric:Union[str, callable], seq_ids:List, labels:List[Lis
             metric_value = metric_func(label, pred, outcome_mask)
             metric_values_dict[seq_id] = metric_value
             mean_metric_value += metric_value
+            weighted_mean_metric_value_nr += metric_value * sum(outcome_mask)
+            weighted_mean_metric_value_dr += sum(outcome_mask)
         mean_metric_value /= len(labels)
+        weighted_mean_metric_value = weighted_mean_metric_value_nr / weighted_mean_metric_value_dr
         
     # Prepare a dictionary that contains the average, median, and the metrics for the entire sequence along with their seq_id
     median_metric_value = np.median(list(metric_values_dict.values())) if metric_name != "pearsonr" else np.median([x[0] for x in list(metric_values_dict.values())])
@@ -171,6 +212,7 @@ def within_seq_metric(metric:Union[str, callable], seq_ids:List, labels:List[Lis
         sorted_p_values = sorted([x[1] for x in list(metric_values_dict.values())]) 
         median_p_val = hmean([sorted_p_values[len(sorted_p_values)//2], sorted_p_values[len(sorted_p_values)//2 + 1]]) if len(sorted_p_values)%2 == 0 else sorted_p_values[len(sorted_p_values)//2]
     within_seq_metric_dict = {"mean": mean_metric_value, "median": median_metric_value, "seq_metric_values": metric_values_dict.values(), 'seq_ids': metric_values_dict.keys(), "metric_name": metric_name}
+    if metric_name != "pearsonr": within_seq_metric_dict["weighted_mean"] = weighted_mean_metric_value
     if metric_name == "pearsonr": 
         within_seq_metric_dict["mean_p_value"] = mean_p_values
         within_seq_metric_dict["median_p_value"] = median_p_val

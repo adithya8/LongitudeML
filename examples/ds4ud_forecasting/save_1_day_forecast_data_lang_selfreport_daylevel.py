@@ -389,10 +389,9 @@ def merge_features(feature_datasets:List[Dataset], feature_suffixes:List[str]=[]
 
 if __name__ == '__main__':
     
-    base_dict = dict(db="ptsd_stop", msg_table="whisper_transcripts_v5", 
+    base_dict = dict(db="ds4ud_prospective", msg_table="msgs_ema_essay_v9", #msgs_ema_words_v9 
             feature_tables=["feat$PCL_sr$outcomes_v6$user_day_id"],
-            # feature_tables=["feat$dr_rpca_32_roba_meL11$whisper_transcripts_v3$user_day_id"],
-            outcome_table="outcomes_v6_PCL_1_day_ahead", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
+            outcome_table="outcomes_ema_essay_v9", outcome_fields=["PCL_1_day_ahead"], timeid_field="day_id", 
             correl_field="user_id", messageid_field="user_day_id")
     
     # qry_seq_time_id_table is the table that contains the qury_id, sequence ids and time_ids that correspond to the features table.

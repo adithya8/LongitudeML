@@ -14,28 +14,40 @@ def get_data_args(parser: argparse.ArgumentParser):
 def get_model_args(parser: argparse.ArgumentParser):
     # model_args: arguments related to model
     parser.add_argument('--model_type', type=str, default='gru',
-                        help='model type (default: gru)', choices=['gru', 'trns'])
+                        help='model type (default: gru)', choices=['gru', 'trns', 'custom', 'baseline', 'custom_scratch'])
+    parser.add_argument('--custom_model', type=str, default=None)
     parser.add_argument('--input_size', type=int, default=768, #required=True, 
-                        help='size of the embeddings')
+                        help='size of the embeddings') 
     parser.add_argument('--num_classes', type=int, default=1, #required=True,
-                        help='number of classes (default: 2)')
+                        help='number of classes (default: 1)')
     parser.add_argument('--num_outcomes', type=int, default=1, #required=True,
                         help='Number of outcomes (default: 1)')
     parser.add_argument('--hidden_size', type=int, default=128, #required=True,
                         help='hidden size (default: 128)')
+    parser.add_argument('--projection_size', type=int, default=None,
+                        help='projection size (default: None, same as hidden_size)')
     parser.add_argument('--num_layers', type=int, default=1,
                         help='number of layers (default: 1)')
-    parser.add_argument('--dropout', type=float, default=0.10,
-                        help='dropout (default: 0.10)')
-    parser.add_argument('--output_dropout', type=float, default=0.10,
-                        help='output layer dropout (default: 0.10)')
+    parser.add_argument('--dropout', type=float, default=0.0,
+                        help='dropout (default: 0.0)')
+    parser.add_argument('--output_dropout', type=float, default=0.0,
+                        help='output layer dropout (default: 0.0)')
+    parser.add_argument('--positional_encoding_type', type=str, default='none',
+                        help='positional encoding type (default: none)', choices=['none', 'sinusoidal', 'learned', 'rope'])
+    parser.add_argument('--pre_ln', action='store_true', default=False,
+                        help='use pre-layer normalization (default: False)')
     parser.add_argument('--bidirectional', action='store_true', default=False,
                         help='bidirectional (default: False)')
     parser.add_argument('--num_heads', type=int, default=2,
                         help='number of heads for transformer model (default: 2)')
     parser.add_argument('--max_len', type=int, default=130,
                         help='maximum sequence length for transformer model (default: 130)')
-
+    parser.add_argument('--max_history_len', type=int, default=None,
+                        help='maximum history length for transformer model (default: None, same as max_len). \
+                            If set, attention will be limited to this length.')
+    parser.add_argument('--sliding_window_size', type=int, default=None,
+                        help='sliding window size for ensuring that the model recalibrates input at every timestep\
+                            beyond the sliding window size (default: None, no sliding window)')
 
 def get_training_args(parser: argparse.ArgumentParser):
     # training_args: arguments related to training
@@ -45,6 +57,8 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help='do Test (default: False)')
     parser.add_argument('--val_folds', nargs='+', type=int, default=[],
                         help='folds to validate on (default: [])')
+    parser.add_argument('--test_folds', nargs='+', type=int, default=[],
+                        help='folds to test on (default: [])')
     parser.add_argument('--do_hparam_tune', action='store_true', default=False,
                         help='do hyperparameter tuning (default: False)')
     parser.add_argument('--n_trials', type=int, default=100,
@@ -59,16 +73,44 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help="Batch size for evaluation.")
     parser.add_argument('--cross_entropy_class_weight', default=None, nargs='+', type=float,
                         help='class weight for cross entropy loss (default: None)')
+    parser.add_argument('--loss_reduction', type=str, default='flatten', choices=['within-seq', 'between-seq', 'flatten', 'none'],
+                        help='Loss reduction strategy (default: flatten)')
+    parser.add_argument('--metrics_reduction', type=str, default='within-seq', choices=['within-seq', 'between-seq', 'flatten', 'none'],
+                        help='Metrics reduction strategy (default: flatten)')
+    # Args for turning sequence prediction into change prediction
+    parser.add_argument('--do_shift', action='store_true', default=False,
+                        help='Predict the change instead of the absolute value (default: False)')
+    parser.add_argument('--interpolated_output', action='store_true', default=False,
+                        help='The output has been linearly interpolated (default: False)')
+    # Args for sequence length scheduling
+    parser.add_argument('--seq_len_scheduler_type', type=str, default='none',
+                        help='Sequence length scheduler type (default: none)', choices=['none', 'linear', 'exponential'])
+    parser.add_argument('--min_seq_len', type=int, default=10,
+                        help='Minimum sequence length for training (default: 10)')
+    parser.add_argument('--max_seq_len', type=int, default=-1,
+                        help='Maximum sequence length for training (default: -1, same as max_len)')
+    parser.add_argument('--max_scheduled_epochs', type=int, default=-1,
+                        help='Maximum number of epochs for the sequence length scheduler (default: -1, same as max_epochs)')
+    # Args for logging and saving 
     parser.add_argument('--log_interval', type=int, default=10,
                         help='logging interval (default: 10)')
     parser.add_argument('--save_strategy', type=str, default='best',
                         help='model save strategy (default: best)', choices=['best', 'all'])
     parser.add_argument('--save_dir', type=str, default=None,
                         help='model save directory (default: saved_models)')
+    # Hyperparameter Args
     parser.add_argument('--lr', type=float, default=0.001,
                         help='learning rate (default: 0.001)')
     parser.add_argument('--weight_decay', type=float, default=0.0,
                         help='weight decay (default: 0.0)')
+    parser.add_argument('--lr_scheduler', type=str, default='none',
+                        help='learning rate scheduler (default: none)', choices=['none', 'linear'])
+    parser.add_argument('--warmup_epochs', type=int, default=1,
+                        help='number of warmup epochs for learning rate scheduler (default: 1)')
+    parser.add_argument('--start_factor', type=float, default=0.5,
+                        help='start factor for learning rate scheduler (default: 0.5)')
+    parser.add_argument('--end_factor', type=float, default=1,
+                        help='end factor for learning rate scheduler (default: 1)')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='number of workers (default: 4)')
     parser.add_argument('--seed', type=int, default=42,
@@ -81,6 +123,14 @@ def get_training_args(parser: argparse.ArgumentParser):
                         help="Minimum delta value for loss monitoring to consider for early stopping (default: 0.0)")
     parser.add_argument('--early_stopping_mode', type=str, default='min', choices=['min', 'max'],
                         help="Early Stopping mode (default: min)")
+    parser.add_argument('--subscale_weights_path', type=str, default=None,
+                        help="Path to the weights of the subscale model")
+    parser.add_argument('--lang_weights_path', type=str, default=None,
+                        help="Path to the weights of the language model")
+    parser.add_argument('--optimizer', type=str, default='adamw', choices=['adamw', 'sgd'],
+                        help="Optimizer (default: adamw)")
+    parser.add_argument('--mute_grad', nargs='+', default=[], 
+                        help='modules to mute grad for (options: "subscales", "lang")',)
     #TODO: Add early stopping
 
 

@@ -80,7 +80,10 @@ class DLATKDataGetter:
         features_names = []
         for table in feature_tables:
             fg.featureTable = table
-            gns, feats = fg.getGroupNormsWithZeros(where=where)
+            # NOTE: Extracting groups from the feature table since fg.getGroupNormsWithZeros() extracts groups from corptable by default if not provided with groups.
+            groups = fg.qb.create_select_query(table).set_fields(["DISTINCT group_id"]).where(where).execute_query()
+            groups = [x[0] for x in groups]
+            gns, feats = fg.getGroupNormsWithZeros(where=where, groups=groups)
             features_names.append(feats)
             table_gns_dict = dict()
             for query_id in gns.keys():
@@ -104,6 +107,53 @@ class DLATKDataGetter:
         return gns_dict, features_names
 
     
+    def get_seq_feature_tables(self, feature_tables:Union[List, str]=None, where:str='') -> Dict:
+        """
+            Get feature tables at the sequence level.
+            Where clause can be used to filter the data and is run on the message table.
+            Returns
+            -------
+                A dictionary of the following format:
+                {
+                    'seq_id': [sid1, sid2, ...],
+                    'seq_feats': [[feat1, feat2, ...]_sid1, [feat1, feat2, ...]_sid2, ...],
+                }
+        """
+        if feature_tables is None:
+            feature_tables = [self.feature_tables] if isinstance(self.feature_tables, str) else self.feature_tables
+        else:
+            feature_tables = [feature_tables] if isinstance(feature_tables, str) else feature_tables
+        fg = FeatureGetter(corpdb=self.args.db, corptable=self.args.msg_table, correl_field=self.args.correl_field)
+        temp_gns_dict = dict()
+        features_names = []
+        for table in feature_tables:
+            fg.featureTable = table
+            groups = fg.qb.create_select_query(table).set_fields(["DISTINCT group_id"]).where(where).execute_query()
+            groups = [x[0] for x in groups]
+            gns, feats = fg.getGroupNormsWithZeros(where=where, groups=groups)
+            features_names.append(feats)
+            table_gns_dict = dict()
+            for query_id in gns.keys():
+                table_gns_dict[query_id] = []
+                for feat in feats:
+                    table_gns_dict[query_id].append(gns[query_id][feat])
+            temp_gns_dict[table] = table_gns_dict
+                    
+        common_qryids = []
+        for table_gns_dict in temp_gns_dict.values(): 
+            common_qryids.append(set(table_gns_dict.keys()))
+        common_qryids = reduce(lambda x, y: x.intersection(y), common_qryids)
+        
+        gns_dict = dict()
+        # concat the embeddings from all the feature tables only for the common query ids
+        for query_id in common_qryids:
+            gns_dict[query_id] = []
+            for table in temp_gns_dict.keys():
+                gns_dict[query_id].extend(temp_gns_dict[table][query_id])
+
+        return gns_dict, features_names
+
+
     def get_feature(self, feature:str, feature_table:str, where:str=None) -> Dict:
         """
             Get a specific feature from the feature table
@@ -160,12 +210,15 @@ class DLATKDataGetter:
         
         return qryid_seqid_mapping, qryid_timeids_mapping
     
+    def get_long_lang_features(self, where:str='', qry_seq_time_id_table:str=None, include_num_tokens=False) -> Dict:
+        print ("get_long_lang_features is deprecated. Use get_long_features instead")
+        return self.get_long_features(where=where, qry_seq_time_id_table=qry_seq_time_id_table, include_num_tokens=include_num_tokens)
 
-    def get_long_lang_features(self, where:str='', include_num_tokens=True) -> Dict:
+    def get_long_features(self, where:str='', qry_seq_time_id_table:str=None) -> Dict:
         """
-            Gets language features from the feature tables.
+            Gets features/embeddings from the feature tables.
             Where clause can be used to filter the data and is run on the message table.
-            include_num_tokens: bool - whether to include the number of tokens in the language features. Default: True
+            qry_seq_time_id_table: str - table name to get the query_id, sequence_id and time_id mapping. Default: None, will be set to self.args.msg_table
             Returns
             -------
                 A dictionary of the following format:
@@ -176,21 +229,16 @@ class DLATKDataGetter:
                                    [[emb1, emb2, ...]_tid1, [emb1, emb2, ...]_tid2, ...]_sid2,
                                   ... 
                                   ],
-                    'embeddings_names': [[emb_name1, emb_name2, ...]_feattable1, [emb_name1, emb_name2, ...]_feattable2, ...],
-                    # num_tokens is optional 
-                    'num_tokens': [[num_tokens_tid1, num_tokens_tid2, ...]_sid1, 
-                                   [num_tokens_tid1, num_tokens_tid2, ...]_sid2,
-                                  ... 
-                                  ],
-                                   
+                    'embeddings_names': [[emb_name1, emb_name2, ...]_feattable1, [emb_name1, emb_name2, ...]_feattable2, ...],                                   
                 }
         """
         
         # STEP 1: Get dictionary containing query_id and embeddings 
         gns_dict, features_names = self.get_feature_tables(where=where)
         
+        if qry_seq_time_id_table is None: qry_seq_time_id_table = self.args.msg_table
         # STEP 2: Get dictionary containing sequence_id as keys and list of tuples containing time_id and query_id as values
-        qryid_seqid_mapping, qryid_timeids_mapping = self.get_qryid_seqid_timeids_mapping(table_name=self.args.msg_table)
+        qryid_seqid_mapping, qryid_timeids_mapping = self.get_qryid_seqid_timeids_mapping(table_name=qry_seq_time_id_table)
         seqid_timeidsqryids_mapping = dict() # Create a dictionary with seq_id as key and list of (time_id, qry_id) as value
         for qry_id, seq_id in qryid_seqid_mapping.items():
             if seq_id not in seqid_timeidsqryids_mapping: seqid_timeidsqryids_mapping[seq_id] = []
@@ -199,26 +247,40 @@ class DLATKDataGetter:
         for seq_id in seqid_timeidsqryids_mapping.keys():
             # Sort the time_ids for each seq_id
             seqid_timeidsqryids_mapping[seq_id] = sorted(seqid_timeidsqryids_mapping[seq_id], key=lambda x: x[0])
-        
-        # STEP 3: Check if number_tokens is present. If present, get the number of tokens for each query_id like STEP 1
-        if include_num_tokens:
-            feature_table = f'feat$meta_1gram${self.args.msg_table}${self.args.messageid_field}'
-            num_tokens_dict = self.get_feature(feature="_total1grams", feature_table=feature_table, where=where)
-        
-        # STEP 4: Create the language features dictionary
-        long_lang_features_dict = dict(seq_id=[], time_ids=[], embeddings=[], num_tokens=[])
+                
+        # STEP 3: Create the embeddings dictionary
+        long_features_dict = dict(seq_id=[], time_ids=[], embeddings=[])
         for seq_id in seqid_timeidsqryids_mapping.keys():
-            temp_timeids = [x[0] for x in seqid_timeidsqryids_mapping[seq_id]]
-            temp_qryids = [x[1] for x in seqid_timeidsqryids_mapping[seq_id]]
-            temp_embs = [gns_dict[qry_id] for qry_id in temp_qryids]
-            temp_num_tokens = [num_tokens_dict[qry_id] for qry_id in temp_qryids] if include_num_tokens else [None]*len(temp_qryids)
-            long_lang_features_dict['seq_id'].append(seq_id)
-            long_lang_features_dict['time_ids'].append(temp_timeids)
-            long_lang_features_dict['embeddings'].append(temp_embs)
-            long_lang_features_dict['num_tokens'].append(temp_num_tokens)
-        long_lang_features_dict['embeddings_names'] = features_names
+            temp_timeids = [x[0] for x in seqid_timeidsqryids_mapping[seq_id] if x[1] in gns_dict]
+            temp_qryids = [x[1] for x in seqid_timeidsqryids_mapping[seq_id] if x[1] in gns_dict]
+            temp_embs = [gns_dict[x[1]] for x in seqid_timeidsqryids_mapping[seq_id] if x[1] in gns_dict]
+            long_features_dict['seq_id'].append(seq_id)
+            long_features_dict['time_ids'].append(temp_timeids)
+            long_features_dict['embeddings'].append(temp_embs)
+        long_features_dict['embeddings_names'] = features_names
         
-        return long_lang_features_dict
+        return long_features_dict
+    
+
+    def get_seq_features(self, where:str='') -> Dict:
+        """
+            Gets features/embeddings from the feature tables at the sequence level. These features are present at seq_id level -- hence are static for a given seq_id.
+            Where clause can be used to filter the data and is run on the message table.
+            Returns
+            -------
+                A dictionary of the following format:
+                {
+                    'seq_id': [sid1, sid2, ...],
+                    'seq_feats': [[feat1, feat2, ...]_sid1, [feat1, feat2, ...]_sid2, ...],
+                }
+        """
+        gns_dict, features_names = self.get_seq_feature_tables(where=where)
+        seq_features_dict = dict(seq_id=[], seq_embeddings=[])
+        for seq_id in gns_dict.keys():
+            seq_features_dict['seq_id'].append(seq_id)
+            seq_features_dict['seq_embeddings'].append(gns_dict[seq_id])
+        seq_features_dict['seq_embedding_names'] = features_names
+        return seq_features_dict
 
     
     def long_type_encoding(self, qryid_seqid_mapping) -> Dict:

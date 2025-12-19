@@ -560,7 +560,7 @@ if __name__ == '__main__':
         batch['folds'] = [(i - adjustment_factor)%num_folds for i in batch['idx']]
         return batch
     
-    merged_dataset_fulllength = merged_dataset_fulllength.shuffle(seed=42) 
+    merged_dataset_fulllength = merged_dataset_fulllength.shuffle(seed=42)
     merged_dataset_fulllength = merged_dataset_fulllength.map(compute_mean_std)
     merged_dataset_fulllength = merged_dataset_fulllength.sort('std_outcome').sort('avg_outcome')
     merged_dataset_fulllength = merged_dataset_fulllength.add_column('idx', list(range(len(merged_dataset_fulllength))))
@@ -606,6 +606,7 @@ if __name__ == '__main__':
         global embs_agg
         for idx, (embs, embs_mask, oots_mask) in enumerate(zip(instance['embeddings_{}'.format(embs_name)], instance['mask_{}'.format(embs_name)], instance['oots_mask'])):
             # if subscales_mask==0 and oots_mask==0:
+            if oots_mask==0:
                 embs_agg['{}_num'.format(embs_name)] += 1
                 # embs_mean += np.array(embs)
                 # embs_std += np.array(embs)**2
@@ -653,7 +654,7 @@ if __name__ == '__main__':
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreport_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_max90days_v6_60combined_5fold_oots')
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots')
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')
-    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')    
+    merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled_v2')    
     # merged_dataset_fulllength.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_aheadInterpolated_reset_time2zero2_max90days_v6_60combined_5fold_oots_shuffled')
 
     ###############################
@@ -662,7 +663,7 @@ if __name__ == '__main__':
     merged_dataset_devset = merged_dataset_fulllength.filter(lambda x: x['folds'] != 4)
     
     merged_dataset_devset = merged_dataset_devset.map(lambda x: truncate_sequences(x, 59))
-    train_time_ids = list(range(0, 39))
+    train_time_ids = list(range(0,40)) # Make the first 40 time_ids as train time ids and the rest as eval time ids
     merged_dataset_devset = merged_dataset_devset.map(lambda x: create_oots_mask(x, train_time_ids))
     
     print (merged_dataset_devset)
@@ -693,6 +694,131 @@ if __name__ == '__main__':
     print (merged_dataset_devset)
     # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots')
     # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')
-    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')
+    merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled_v2')
     # merged_dataset_devset.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_aheadInterpolated_reset_time2zero2_max60days_v6_40combined_devset_oots_shuffled')    
     ###############################    
+    
+    # Create a dataset from the full length which is just randomized train-test split. 
+    # For each user set aside (2/3*4/5)th of the sequence as train and the remaining as test.
+    # Stratify the data based on the outcome value
+    
+    merged_dataset_devset_randomized = merged_dataset_fulllength.filter(lambda x: x['folds'] != 4)
+    
+    merged_dataset_devset_randomized = merged_dataset_devset_randomized.map(lambda x: truncate_sequences(x, 59))
+    
+    def create_oots_mask_rand(instance, train_ratio: float):
+        time_ids = instance['time_ids']
+        score_mask_combined = [(outcome, mask, time_id) for (mask, outcome, time_id) in zip(instance['outcomes_mask'], instance['outcomes'], time_ids) if mask[0]==1]
+        # randomize this list
+        np.random.seed(42)
+        np.random.shuffle(score_mask_combined)
+        train_size = int(len(score_mask_combined) * train_ratio)
+        score_mask_combined_dict = {time_id: (outcome, mask, 0) if idx < train_size else (outcome, mask, 1) for idx, (outcome, mask, time_id) in enumerate(score_mask_combined)}
+        # score_mask_combined = [(outcome, mask, time_id, oots_mask_temp[idx]) for idx, (outcome, mask, time_id) in enumerate(score_mask_combined)]
+        # score_mask_combined = sorted(score_mask_combined, key=lambda x: x[2]) # sort by time_id
+        oots_mask = []
+        for time_id in time_ids:
+            if time_id in score_mask_combined_dict:
+                oots_mask.append(score_mask_combined_dict[time_id][2]) 
+            else:
+                oots_mask.append(0)
+        # score_mask_combined = sorted(score_mask_combined, key=lambda x: x[0]) # sort by outcome value
+        # assign an index to each element of the list
+        # score_mask_combined = [(outcome, mask, idx) for idx, (outcome, mask) in enumerate(score_mask_combined)]
+        # Perform round robin stratification
+        instance['oots_mask'] = oots_mask
+        return instance
+    
+    train_ratio = (2/3) * (4/5) 
+    merged_dataset_devset_randomized = merged_dataset_devset_randomized.map(lambda x: create_oots_mask_rand(x, train_ratio))
+    
+    print (merged_dataset_devset_randomized)
+    def outcomes_filter_sequences_rand(instance):
+        trainset_outcomes_mask = [outcomes_mask[0] for outcomes_mask, oots_mask in zip(instance['outcomes_mask'], instance['oots_mask']) if oots_mask==0]
+        oots_outcomes_mask = [outcomes_mask[0] for outcomes_mask, oots_mask in zip(instance['outcomes_mask'], instance['oots_mask']) if oots_mask==1]
+        return sum(trainset_outcomes_mask)/len(trainset_outcomes_mask) >= 0.5 and sum(oots_outcomes_mask)/len(oots_outcomes_mask) >= 0.5
+    
+    # Dont perform this filtering. The dev set is already filtered for 50% data presence. 
+    # merged_dataset_devset_randomized = merged_dataset_devset_randomized.filter(outcomes_filter_sequences_rand)
+    
+    embs_agg = {'subscales_mean':np.zeros(5), 'subscales_std':np.zeros(5), 'subscales_num': 0,
+                'lang_mean':np.zeros(64), 'lang_std':np.zeros(64), 'lang_num': 0}
+    
+    merged_dataset_devset_randomized.map(lambda x: compute_flatten_mean_std_subscales(x, 'subscales'))
+    embs_agg['subscales_mean'] /= embs_agg['subscales_num']
+    embs_agg['subscales_std'] = np.sqrt(embs_agg['subscales_std']/embs_agg['subscales_num'] - embs_agg['subscales_mean']**2)
+    merged_dataset_devset_randomized = merged_dataset_devset_randomized.map(lambda x: normalize_subscales(x, embs_agg['subscales_mean'], embs_agg['subscales_std'], 'subscales'))
+    
+    merged_dataset_devset_randomized.map(lambda x: compute_flatten_mean_std_subscales(x, 'lang'))
+    embs_agg['lang_mean'] /= embs_agg['lang_num']
+    embs_agg['lang_std'] = np.sqrt(embs_agg['lang_std']/embs_agg['lang_num'] - embs_agg['lang_mean']**2)
+    merged_dataset_devset_randomized = merged_dataset_devset_randomized.map(lambda x: normalize_subscales(x, embs_agg['lang_mean'], embs_agg['lang_std'], 'lang'))
+    
+    print (merged_dataset_devset_randomized)
+    merged_dataset_devset_randomized.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_randomized_oots_shuffled_v2')
+    
+    ###############################
+    
+    # Create a dataset from dev set which is split into just train set and ooss user/seq set.
+    # The number of test users should be 50% of the total users in the dev set.
+    
+    merged_dataset_devset_normative = merged_dataset_fulllength.filter(lambda x: x['folds'] != 4)
+    merged_dataset_devset_normative = merged_dataset_devset_normative.map(lambda x: truncate_sequences(x, 59))
+    
+    num_folds=2
+    merged_dataset_devset_normative = merged_dataset_devset_normative.shuffle(seed=42)
+    merged_dataset_devset_normative = merged_dataset_devset_normative.map(compute_mean_std)
+    merged_dataset_devset_normative = merged_dataset_devset_normative.sort('std_outcome').sort('avg_outcome')
+    merged_dataset_devset_normative = merged_dataset_devset_normative.add_column('idx', list(range(len(merged_dataset_devset_normative))))
+    merged_dataset_devset_normative = merged_dataset_devset_normative.map(stratify_sequences, batched=True, batch_size=num_folds, remove_columns=['avg_outcome', 'std_outcome', 'idx'])
+    
+    # Set all oots_mask to 0, i.e., train_ratio = 1.0 for the train set and 0 for the ooss set.
+    merged_dataset_devset_normative = merged_dataset_devset_normative.map(lambda x: create_oots_mask_rand(x, train_ratio=1.0) if x['folds'] == 1 else create_oots_mask_rand(x, train_ratio=0.0))
+    
+    print (merged_dataset_devset_normative)
+    embs_agg = {'subscales_mean':np.zeros(5), 'subscales_std':np.zeros(5), 'subscales_num': 0,
+                'lang_mean':np.zeros(64), 'lang_std':np.zeros(64), 'lang_num': 0}
+    
+    merged_dataset_devset_normative.map(lambda x: compute_flatten_mean_std_subscales(x, 'subscales'))
+    embs_agg['subscales_mean'] /= embs_agg['subscales_num']
+    embs_agg['subscales_std'] = np.sqrt(embs_agg['subscales_std']/embs_agg['subscales_num'] - embs_agg['subscales_mean']**2)
+    merged_dataset_devset_normative = merged_dataset_devset_normative.map(lambda x: normalize_subscales(x, embs_agg['subscales_mean'], embs_agg['subscales_std'], 'subscales'))
+    merged_dataset_devset_normative.map(lambda x: compute_flatten_mean_std_subscales(x, 'lang'))
+    embs_agg['lang_mean'] /= embs_agg['lang_num']
+    embs_agg['lang_std'] = np.sqrt(embs_agg['lang_std']/embs_agg['lang_num'] - embs_agg['lang_mean']**2)
+    merged_dataset_devset_normative = merged_dataset_devset_normative.map(lambda x: normalize_subscales(x, embs_agg['lang_mean'], embs_agg['lang_std'], 'lang'))
+    print (merged_dataset_devset_normative)
+    
+    merged_dataset_devset_normative.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_normative_oots_shuffled_v2')
+    
+    ###############################
+    
+    # Create a dataset from the full length which doesn't have ooss split but has oots split at (2/3 * 4/5 * 60)th day = 32nd day of the sequence
+    
+    merged_dataset_devset_idio = merged_dataset_fulllength.map(lambda x: truncate_sequences(x, 59))
+    train_time_ids = list(range(0, 32))  # Train time ids are from 0 to 31
+    
+    merged_dataset_devset_idio = merged_dataset_devset_idio.map(lambda x: create_oots_mask(x, train_time_ids))
+    print (merged_dataset_devset_idio)
+    def outcomes_filter_sequences_oots(instance):
+        outcomes_mask = [mask[0] for mask in instance['outcomes_mask']]
+        return sum(outcomes_mask[:32]) >= 16 and sum(outcomes_mask[32:]) >= 14
+    
+    # No need to run this filter
+    # merged_dataset_devset_idio = merged_dataset_devset_idio.filter(outcomes_filter_sequences_oots)
+    embs_agg = {'subscales_mean':np.zeros(5), 'subscales_std':np.zeros(5), 'subscales_num': 0,
+                'lang_mean':np.zeros(64), 'lang_std':np.zeros(64), 'lang_num': 0}
+    
+    merged_dataset_devset_idio.map(lambda x: compute_flatten_mean_std_subscales(x, 'subscales'))
+    embs_agg['subscales_mean'] /= embs_agg['subscales_num']
+    embs_agg['subscales_std'] = np.sqrt(embs_agg['subscales_std']/embs_agg['subscales_num'] - embs_agg['subscales_mean']**2)
+    merged_dataset_devset_idio = merged_dataset_devset_idio.map(lambda x: normalize_subscales(x, embs_agg['subscales_mean'], embs_agg['subscales_std'], 'subscales'))
+    merged_dataset_devset_idio.map(lambda x: compute_flatten_mean_std_subscales(x, 'lang'))
+    embs_agg['lang_mean'] /= embs_agg['lang_num']
+    embs_agg['lang_std'] = np.sqrt(embs_agg['lang_std']/embs_agg['lang_num'] - embs_agg['lang_mean']**2)
+    merged_dataset_devset_idio = merged_dataset_devset_idio.map(lambda x: normalize_subscales(x, embs_agg['lang_mean'], embs_agg['lang_std'], 'lang'))
+    
+    print (merged_dataset_devset_idio)
+
+    merged_dataset_devset_idio.save_to_disk('/cronus_data/avirinchipur/ptsd_stop/forecasting/datasets/PCLsubscales_selfreportZ_roberta_laL23rpca64FlattenNormalized_wtcSubscalesFlattenNormalized_merged_PCL_1_days_ahead_reset_time2zero2_max60days_v6_40combined_idio_oots_shuffled_v2')
+    ###############################
