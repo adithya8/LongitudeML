@@ -31,7 +31,7 @@ class SinusoidalPositionalEncoding(nn.Module):
             raise ValueError(f"Input sequence length {x.shape[1]} exceeds maximum length {self.max_len}. Please increase max_len.")
         return x
     
-
+# FIXME: This is not working as expected. Error in line x_out = torch.stack(...
 # Adapted source code from: https://docs.pytorch.org/torchtune/0.2/_modules/torchtune/modules/position_embeddings.html#RotaryPositionalEmbeddings
 class RotaryPositionalEmbeddings(nn.Module):
     """
@@ -98,7 +98,7 @@ class RotaryPositionalEmbeddings(nn.Module):
         """
         Args:
             x (Tensor): input tensor with shape
-                [b, s, n_h, h_d]
+                [b, n_h, s, h_d]
             input_pos (Optional[Tensor]): Optional tensor which contains the position ids
                 of each token. During training, this is used to indicate the positions
                 of each token relative to its sample when packed, shape [b, s].
@@ -106,7 +106,7 @@ class RotaryPositionalEmbeddings(nn.Module):
                 If none, assume the index of the token is its position id. Default is None.
 
         Returns:
-            Tensor: output tensor with RoPE applied
+            Tensor: output tensor with RoPE applied, shape [b, n_h, s, h_d]
 
         Notation used for tensor shapes:
             - b: batch size
@@ -118,24 +118,32 @@ class RotaryPositionalEmbeddings(nn.Module):
         for inference.
         """
         # input tensor has shape [b, n_h, s, h_d]
-        seq_len = x.size(2)
+        b, n_h, seq_len, h_d = x.shape
 
         # extract the values based on whether input_pos is set or not
-        rope_cache = (
-            self.cache[:seq_len] if input_pos is None else self.cache[input_pos]
-        )
+        if input_pos is None:
+            rope_cache = self.cache[:seq_len]  # shape: [seq_len, h_d // 2, 2]
+        else:
+            rope_cache = self.cache[input_pos]  # shape: [b, s, h_d // 2, 2] or [b, s] -> [b, s, h_d // 2, 2]
 
         # reshape input; the last dimension is used for computing the output.
         # Cast to float to match the reference implementation
         # tensor has shape [b, n_h, s, h_d // 2, 2]
-        xshaped = x.float().reshape(*x.shape[:-1], -1, 2)
+        xshaped = x.float().reshape(b, n_h, seq_len, -1, 2)
 
-        # reshape the cache for broadcasting
-        # tensor has shape [b, 1, s, h_d // 2, 2] if packed samples,
-        # otherwise has shape [1, 1, s, h_d // 2, 2]
-        rope_cache = rope_cache.view(-1, 1, seq_len, xshaped.size(3), 2)
+        # reshape the cache for broadcasting with xshaped [b, n_h, s, h_d // 2, 2]
+        if input_pos is None:
+            # rope_cache: [seq_len, h_d // 2, 2] -> [1, 1, seq_len, h_d // 2, 2]
+            rope_cache = rope_cache.unsqueeze(0).unsqueeze(0)
+        else:
+            # rope_cache: [b, s, h_d // 2, 2] -> [b, 1, s, h_d // 2, 2]
+            if rope_cache.dim() == 4:
+                rope_cache = rope_cache.unsqueeze(1)
+            else:
+                # Handle case where input_pos might be 1D or 2D
+                rope_cache = rope_cache.view(b, seq_len, -1, 2).unsqueeze(1)
 
-        # tensor has shape [b, s, n_h, h_d // 2, 2]
+        # Apply rotary embedding: tensor has shape [b, n_h, s, h_d // 2, 2]
         x_out = torch.stack(
             [
                 xshaped[..., 0] * rope_cache[..., 0]
@@ -146,7 +154,7 @@ class RotaryPositionalEmbeddings(nn.Module):
             -1,
         )
 
-        # tensor has shape [b, s, n_h, h_d]
+        # tensor has shape [b, n_h, s, h_d]
         x_out = x_out.flatten(3)
         return x_out.type_as(x)
 
@@ -355,6 +363,8 @@ class TransformerBlock(nn.Module):
         return z
 
 
+# TODO: Implement the Conformer block
+
 # Iimplementation of the parallel Transformer block: https://arxiv.org/abs/1911.09483 / https://github.com/kingoflolz/mesh-transformer-jax
 # Implementation is based on depiction from https://arxiv.org/pdf/2311.01906
 class ParallelTransformerBlock(nn.Module):
@@ -413,7 +423,8 @@ class RoPETransformerModel(nn.Module):
     def __init__(self, input_dim:int , num_heads:int , num_layers:int , num_classes:int, dim_feedforward:int, num_outcomes:int=1, pre_ln:bool=False, 
                  dropout:float=0.0, output_dropout:float=0.0, max_seq_len:int=512, max_history_len:int=None, mute_grad:bool=False):
         super(RoPETransformerModel, self).__init__()
-        self.rotary_emb_obj = RotaryPositionalEmbeddings(dim=input_dim//num_heads, max_seq_len=max_seq_len)
+        # Use dim_feedforward//num_heads to match the actual head_dim used in MultiHeadedSelfAttention
+        self.rotary_emb_obj = RotaryPositionalEmbeddings(dim=dim_feedforward//num_heads, max_seq_len=max_seq_len)
         self.layers = nn.ModuleList([
             TransformerBlock(input_dim=input_dim, num_heads=num_heads, dim_feedforward=dim_feedforward, dropout=dropout, rotary_emb=self.rotary_emb_obj, pre_ln=pre_ln, max_history_len=max_history_len) for _ in range(num_layers)
         ])
