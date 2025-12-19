@@ -9,6 +9,7 @@ LongitudeML is a machine learning framework for longitudinal forecasting, partic
 - **[datamodule.md](datamodule.md)**: Dataset preparation, masking, and DataLoader setup, with detailed method reference for all key functions and classes.
 - **[models.md](models.md)**: Model architectures (recurrent, transformer, linear), including argument tables for `forward()` methods.
 - **[lightning_module.md](lightning_module.md)**: PyTorch Lightning integration for training and evaluation, with a step-by-step breakdown of the workflow.
+- **[sklearn_trainer.md](sklearn_trainer.md)**: Scikit-learn model integration with PyTorch DataLoaders, including SklearnModule and SklearnTrainer for simple sklearn models.
 - **[evaluation.md](evaluation.md)**: Evaluation metrics, reduction modes, expected tensor shapes, and usage examples.
 - **[logger.md](logger.md)**: Logging utilities for experiment tracking and hyperparameter logging.
 - **[mi_args.md](mi_args.md)**: Full argument/configuration reference, with tables for all command-line/configuration options.
@@ -21,6 +22,7 @@ LongitudeML is a machine learning framework for longitudinal forecasting, partic
 - **Data Module**: Classes and functions for preparing datasets and dataloaders ([datamodule.md](datamodule.md)).
 - **Models**: Recurrent, transformer, and linear models for sequence prediction ([models.md](models.md)).
 - **Lightning Module**: PyTorch Lightning integration for training and evaluation ([lightning_module.md](lightning_module.md)).
+- **Sklearn Trainer**: Scikit-learn model integration with PyTorch DataLoaders for simple models like Ridge and Lasso ([sklearn_trainer.md](sklearn_trainer.md)).
 - **Evaluation**: Flexible metrics and reduction modes for grouped/longitudinal data ([evaluation.md](evaluation.md)).
 - **Logging**: Experiment tracking and hyperparameter logging ([logger.md](logger.md)).
 - **Arguments**: All configuration options and command-line arguments ([mi_args.md](mi_args.md)).
