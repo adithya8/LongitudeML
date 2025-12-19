@@ -54,7 +54,7 @@ See [examples.md](docs/examples.md) and the `examples/` folder for full scripts 
 
 ## Documentation
 
-📚 **Full documentation is available at: [https://LongitudeML.github.io](https://LongitudeML.github.io)**
+📚 **Full documentation is available at: [https://adithya8.github.io/LongitudeML](https://adithya8.github.io/LongitudeML)**
 
 ### Quick Links
 
