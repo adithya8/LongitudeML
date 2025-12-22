@@ -13,91 +13,16 @@ add_to_path(__file__)
 
 import pytorch_lightning as pl
 from datasets import load_from_disk
-from sklearn.linear_model import Ridge, Lasso
 import torch
 import pickle
 
 from src import (
     get_default_args, get_logger,
     get_datasetDict, MIDataLoaderModule,
-    SklearnModule, SklearnTrainer
+    SklearnModule, SklearnTrainer,
+    RidgeForecastModel, LassoForecastModel,
+    AutoRegressiveRidge, AutoRegressiveLasso
 )
-
-
-class RidgeForecastModel(Ridge):
-    """
-    Example sklearn model adapter that knows how to select features
-    from the aggregated batch dictionary.
-
-    It inherits from sklearn's Ridge so it can be used directly with
-    GridSearchCV / RandomizedSearchCV, but also implements:
-
-        select_features(batch_dict, args) -> (X_3d, y_3d, mask_3d)
-
-    so that SklearnModule can delegate feature selection to the model
-    (mirroring the PyTorch design where the model decides which
-    embeddings_* keys to use).
-    """
-
-    def select_features(self, batch_dict, args):
-        """
-        Args:
-            batch_dict: Dict[str, Tensor] aggregated over all batches.
-            args: Namespace with configuration (unused here but kept for API).
-
-        Returns:
-            X_3d: (batch_size, seq_len, input_dim)
-            y_3d: (batch_size, seq_len, num_outcomes)
-            mask_3d: (batch_size, seq_len, num_outcomes) boolean
-        """
-        # Prefer language embeddings if available, otherwise fall back to
-        # the first embeddings_* key. Users can customize this logic.
-        embeddings_key = None
-        preferred_keys = [
-            "embeddings_lang_z",
-            "embeddings_lang",
-            "embeddings_subscales_z",
-            "embeddings_subscales",
-        ]
-        available_embedding_keys = [k for k in batch_dict.keys() if k.startswith("embeddings")]
-
-        for k in preferred_keys:
-            if k in batch_dict:
-                embeddings_key = k
-                break
-
-        if embeddings_key is None:
-            if len(available_embedding_keys) == 0:
-                raise KeyError(
-                    f"No embeddings_* keys found in batch_dict. "
-                    f"Available keys: {list(batch_dict.keys())}"
-                )
-            # Fallback to the first embeddings_* key
-            embeddings_key = available_embedding_keys[0]
-
-        if "outcomes" not in batch_dict or "outcomes_mask" not in batch_dict:
-            raise KeyError(
-                "Expected 'outcomes' and 'outcomes_mask' in batch_dict. "
-                f"Available keys: {list(batch_dict.keys())}"
-            )
-
-        print (f"Using embeddings key: {embeddings_key}")
-        X_3d = batch_dict[embeddings_key]
-        y_3d = batch_dict["outcomes"]
-        mask_3d = batch_dict["outcomes_mask"]
-
-        return X_3d, y_3d, mask_3d
-
-
-class LassoForecastModel(Lasso):
-    """
-    Lasso variant of RidgeForecastModel implementing the same
-    select_features interface.
-    """
-
-    def select_features(self, batch_dict, args):
-        # Reuse the same logic as RidgeForecastModel
-        return RidgeForecastModel.select_features(self, batch_dict, args)
 
 
 def test_sklearn_trainer_minimal(args):
@@ -500,19 +425,122 @@ def test_sklearn_subset_presence_matches_masks():
     print("=" * 80)
 
 
+def test_autoregressive_sklearn_models():
+    """
+    Test autoregressive sklearn models with history windowing.
+    Compares performance with and without history windowing.
+    """
+    print("\n" + "=" * 80)
+    print("TESTING AUTOREGRESSIVE SKLEARN MODELS")
+    print("=" * 80)
+
+    args = get_default_args()
+    args.train_batch_size = 8
+    args.val_batch_size = 16
+    args.output_dir = "/tmp/sklearn_trainer_ar_test"
+    
+    # Set max_len for autoregressive models (use 7-day history)
+    # args.max_len = 7
+
+    pl.seed_everything(args.seed if hasattr(args, "seed") else 42)
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    data = load_from_disk(args.data_dir)
+    datasetDict = get_datasetDict(
+        train_data=data, val_folds=args.val_folds, test_folds=args.test_folds
+    )
+    for key in datasetDict:
+        datasetDict[key] = datasetDict[key].with_format("torch")
+
+    dataloaderModule = MIDataLoaderModule(args, datasetDict)
+
+    results_comparison = {}
+
+    # Test 1: Regular Ridge (no history windowing)
+    print("\n" + "-" * 80)
+    print("1. Testing Regular Ridge (no history windowing)")
+    print("-" * 80)
+    model_regular = RidgeForecastModel(alpha=args.weight_decay, random_state=args.seed)
+    module_regular = SklearnModule(args, model_regular)
+    trainer_regular = SklearnTrainer(output_dir=os.path.join(args.output_dir, "regular"), logger=None)
+
+    results_regular = trainer_regular.fit(
+        module_regular,
+        train_dataloader=dataloaderModule.train_dataloader(),
+        val_dataloader=dataloaderModule.val_dataloader(),
+    )
+    results_comparison["Regular Ridge"] = results_regular
+
+    print(f"Regular Ridge - Train MSE: {results_regular['train']['mse']:.4f}")
+    print(f"Regular Ridge - Val MSE: {results_regular['val']['ws_wt_mse']:.4f}")
+
+    # Test 2: Autoregressive Ridge (with history windowing)
+    print("\n" + "-" * 80)
+    print(f"2. Testing Autoregressive Ridge (max_len={args.max_len})")
+    print("-" * 80)
+    model_ar = AutoRegressiveRidge(alpha=args.weight_decay, random_state=args.seed)
+    module_ar = SklearnModule(args, model_ar)
+    trainer_ar = SklearnTrainer(output_dir=os.path.join(args.output_dir, "autoregressive"), logger=None)
+
+    results_ar = trainer_ar.fit(
+        module_ar,
+        train_dataloader=dataloaderModule.train_dataloader(),
+        val_dataloader=dataloaderModule.val_dataloader(),
+    )
+    results_comparison["Autoregressive Ridge"] = results_ar
+
+    print(f"Autoregressive Ridge - Train MSE: {results_ar['train']['mse']:.4f}")
+    print(f"Autoregressive Ridge - Val MSE: {results_ar['val']['ws_wt_mse']:.4f}")
+
+    # Test 3: Autoregressive Lasso
+    print("\n" + "-" * 80)
+    print(f"3. Testing Autoregressive Lasso (max_len={args.max_len})")
+    print("-" * 80)
+    model_ar_lasso = AutoRegressiveLasso(alpha=args.weight_decay, random_state=args.seed, max_iter=1000)
+    module_ar_lasso = SklearnModule(args, model_ar_lasso)
+    trainer_ar_lasso = SklearnTrainer(output_dir=os.path.join(args.output_dir, "autoregressive_lasso"), logger=None)
+
+    results_ar_lasso = trainer_ar_lasso.fit(
+        module_ar_lasso,
+        train_dataloader=dataloaderModule.train_dataloader(),
+        val_dataloader=dataloaderModule.val_dataloader(),
+    )
+    results_comparison["Autoregressive Lasso"] = results_ar_lasso
+
+    print(f"Autoregressive Lasso - Train MSE: {results_ar_lasso['train']['mse']:.4f}")
+    print(f"Autoregressive Lasso - Val MSE: {results_ar_lasso['val']['ws_wt_mse']:.4f}")
+
+    # Summary comparison
+    print("\n" + "=" * 80)
+    print("MODEL COMPARISON SUMMARY")
+    print("=" * 80)
+    for model_name, results in results_comparison.items():
+        print(f"\n{model_name}:")
+        print(f"  Train MSE: {results['train']['mse']:.4f}")
+        if 'ws_wt_mse' in results['val']:
+            print(f"  Val MSE (ws_wt): {results['val']['ws_wt_mse']:.4f}")
+        if 'valset_mse' in results['val']:
+            print(f"  Val MSE (valset): {results['val']['valset_mse']:.4f}")
+
+    print("\n" + "=" * 80)
+    print("AUTOREGRESSIVE SKLEARN MODELS TEST COMPLETED SUCCESSFULLY")
+    print("=" * 80)
+
+
 if __name__ == '__main__':
     
     # Get default args
     args = get_default_args()
     
     try:
-        test_sklearn_trainer_minimal(args)
-        print("\n" + "=" * 80)
-        print("MINIMAL TEST COMPLETED SUCCESSFULLY")
-        print("=" * 80)
+        # test_sklearn_trainer_minimal(args)
+        # print("\n" + "=" * 80)
+        # print("MINIMAL TEST COMPLETED SUCCESSFULLY")
+        # print("=" * 80)
 
         # Optional: run subset presence check (can be commented out if slow)
-        test_sklearn_subset_presence_matches_masks()
+        # test_sklearn_subset_presence_matches_masks()
+        test_autoregressive_sklearn_models()
     except Exception as e:
         print(f"\n{'=' * 80}")
         print(f"ERROR: {e}")
