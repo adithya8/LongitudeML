@@ -182,14 +182,20 @@ class AutoRegressiveSklearnBase:
         
         # Unfold to create sliding windows
         # unfold(dimension=1, size=max_len, step=1) creates windows of size max_len
-        # Shape: (batch_size, seq_len, max_len, input_dim)
+        # Shape after unfold: (batch_size, new_seq_len, input_dim, max_len)
+        # Note: unfold puts the window dimension at the end, not in the middle
         X_unfolded = X_3d_padded.unfold(dimension=1, size=max_len, step=1)
         
-        # Flatten the window dimension: (batch_size, seq_len, max_len, input_dim) -> (batch_size, seq_len, max_len * input_dim)
+        # Permute to get (batch_size, new_seq_len, max_len, input_dim)
+        # This matches the expected shape for flattening
+        X_unfolded = X_unfolded.permute(0, 1, 3, 2)  # Swap last two dims: (B, T', D, max_len) -> (B, T', max_len, D)
+        
+        # Verify shapes
         batch_size_unfolded, seq_len_unfolded, window_size, input_dim_unfolded = X_unfolded.shape
         assert window_size == max_len, f"Expected window_size={max_len}, got {window_size}"
         assert input_dim_unfolded == input_dim, f"Expected input_dim={input_dim}, got {input_dim_unfolded}"
         
+        # Flatten the window dimension: (batch_size, seq_len, max_len, input_dim) -> (batch_size, seq_len, max_len * input_dim)
         X_3d_flattened = X_unfolded.contiguous().view(batch_size_unfolded, seq_len_unfolded, max_len * input_dim)
         
         # Handle mask unfolding
@@ -198,8 +204,9 @@ class AutoRegressiveSklearnBase:
         # mask_3d_padded: (batch_size, seq_len + padding_len, num_outcomes)
         # We unfold it similarly and check if all positions in the window are valid
         
-        # Unfold mask: (batch_size, seq_len, max_len, num_outcomes)
+        # Unfold mask: (batch_size, seq_len, num_outcomes, max_len) -> permute to (batch_size, seq_len, max_len, num_outcomes)
         mask_unfolded = mask_3d_padded.unfold(dimension=1, size=max_len, step=1)
+        mask_unfolded = mask_unfolded.permute(0, 1, 3, 2)  # Swap last two dims: (B, T', O, max_len) -> (B, T', max_len, O)
         
         # A window is valid only if ALL timesteps in the window have at least one valid outcome
         # For each window, check if all timesteps have mask.any(dim=-1) == True

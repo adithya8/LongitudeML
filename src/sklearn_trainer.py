@@ -120,7 +120,7 @@ def reconstruct_from_sklearn(predictions, original_shape, valid_indices, mask):
     Reconstruct 3D predictions from sklearn 2D output.
     
     Args:
-        predictions: (n_valid_samples, num_outcomes) numpy array
+        predictions: (n_valid_samples, num_outcomes) numpy array, or (n_valid_samples,) for single outcome
         original_shape: (batch_size, seq_len, num_outcomes) tuple
         valid_indices: list of (batch_idx, time_idx) tuples
         mask: original mask tensor
@@ -130,12 +130,26 @@ def reconstruct_from_sklearn(predictions, original_shape, valid_indices, mask):
     """
     batch_size, seq_len, num_outcomes = original_shape
     
+    # Ensure predictions is 2D: (n_valid_samples, num_outcomes)
+    predictions = np.asarray(predictions)
+    if predictions.ndim == 1:
+        # Single outcome case: reshape to (n_valid_samples, 1)
+        predictions = predictions.reshape(-1, 1)
+    elif predictions.ndim == 0:
+        # Scalar case (shouldn't happen, but handle it)
+        predictions = np.array([[predictions.item()]])
+    
     # Initialize with zeros
     preds_3d = torch.zeros(original_shape)
     
     # Fill in predictions at valid positions
     for idx, (batch_idx, time_idx) in enumerate(valid_indices):
-        preds_3d[batch_idx, time_idx, :] = torch.from_numpy(predictions[idx])
+        pred_value = predictions[idx]  # This is now guaranteed to be an array
+        if isinstance(pred_value, np.ndarray):
+            preds_3d[batch_idx, time_idx, :] = torch.from_numpy(pred_value)
+        else:
+            # Fallback for scalar (shouldn't happen after reshape, but just in case)
+            preds_3d[batch_idx, time_idx, :] = torch.tensor([pred_value])
     
     return preds_3d
 
