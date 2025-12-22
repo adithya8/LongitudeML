@@ -201,8 +201,10 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
             if k=="outcomes_mask": batch[k] = batch[k].to(torch.bool) 
         elif k=="pad_mask" or k=="time_ids" or k=="infill_mask" or k.startswith("mask") or k=="oots_mask" or k.endswith("time_ids"):
             padding_value = -1 if k=="time_ids" or k.endswith("time_ids") else (1 if k=="pad_mask" or k.startswith("mask") or k=="oots_mask" else 0)
+            # Convert to tensors if they're lists (from dataset), otherwise use as-is
+            sequences = [f[k] if isinstance(f[k], torch.Tensor) else torch.tensor(f[k]) for f in features]
             batch[k] = torch.nn.utils.rnn.pad_sequence(
-                [f[k] for f in features],
+                sequences,
                 padding_value=padding_value,
                 batch_first=True,
             )
@@ -219,14 +221,17 @@ def default_collate_fn(features, predict_last_valid_timestep, partition):
                 feat[k] = lastobserved.reshape(1, -1)
             batch[k] = torch.cat([f[k] for f in features], dim=0)             
         elif k=="query_ids":
+            # Convert to tensors if they're lists (from dataset), otherwise use as-is
+            sequences = [f[k] if isinstance(f[k], torch.Tensor) else torch.tensor(f[k]) for f in features]
             batch[k] = torch.nn.utils.rnn.pad_sequence(
-                [f[k] for f in features],
+                sequences,
                 padding_value=-1,
                 batch_first=True,
             )
         elif k=="seq_idx" or k=="seq_id" or k=="ooss_mask":
-            # Stack scalar/1D tensors along batch dimension
-            batch[k] = torch.stack([f[k] for f in features]).reshape(len(features), -1)
+            # Convert to tensors if they're lists/scalars (from dataset), otherwise use as-is
+            values = [f[k] if isinstance(f[k], torch.Tensor) else torch.tensor(f[k]) for f in features]
+            batch[k] = torch.stack(values).reshape(len(features), -1)
         elif k.startswith("seq_embeddings"):
             batch[k] = torch.cat(
                 [f[k].unsqueeze(0) for f in features],
