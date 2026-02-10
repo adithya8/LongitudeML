@@ -4,9 +4,10 @@ import numpy as np
 import torch
 import pickle
 import os
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, ParameterGrid, ParameterSampler
 
 from .mi_eval import mi_mse, mi_smape, mi_pearsonr, mi_mae
+from .mi_lightningmodule import TimeShiftProcessor
 
 
 def collect_batch_dict(dataloader) -> Dict[str, torch.Tensor]:
@@ -97,9 +98,14 @@ def reshape_for_sklearn(X, y, mask):
     batch_size, seq_len, input_dim = X.shape
     num_outcomes = y.shape[-1]
     
+    print(f"[DEBUG] reshape_for_sklearn - Input shapes:")
+    print(f"  X shape: {X.shape}, y shape: {y.shape}, mask shape: {mask.shape}")
+    
     # Find valid positions (where at least one outcome is valid)
     # NOTE: Uses mask.any(dim=-1) - see docstring for implications on multi-outcome models
     valid_mask = mask.any(dim=-1)  # (batch_size, seq_len)
+    n_valid = valid_mask.sum().item()
+    print(f"  Valid mask shape: {valid_mask.shape}, valid samples: {n_valid}/{batch_size * seq_len}")
     
     # Extract valid samples
     X_valid = X[valid_mask]  # (n_valid, input_dim)
@@ -108,6 +114,9 @@ def reshape_for_sklearn(X, y, mask):
     # Convert to numpy
     X_2d = X_valid.cpu().numpy()
     y_2d = y_valid.cpu().numpy()
+    
+    print(f"[DEBUG] reshape_for_sklearn - Output shapes:")
+    print(f"  X_2d shape: {X_2d.shape}, y_2d shape: {y_2d.shape}")
     
     # Store indices for reconstruction
     valid_indices = torch.nonzero(valid_mask, as_tuple=False).tolist()
@@ -154,6 +163,229 @@ def reconstruct_from_sklearn(predictions, original_shape, valid_indices, mask):
     return preds_3d
 
 
+def build_sequence_time_cv_masks(
+    X_3d: torch.Tensor,
+    y_3d: torch.Tensor,
+    outcomes_mask_3d: torch.Tensor,
+    n_folds: int = 3,
+    stratify: bool = True,
+) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """
+    Build custom CV masks that respect both sequence-wise and time-wise structure.
+
+    - Cross-sectional: split sequences into n_folds folds.
+      - If stratify=True: sequences are sorted by mean outcome (computed only on valid
+        timesteps), breaking ties by std dev when means match up to 4 decimal places,
+        then assigned to folds using round-robin.
+      - If stratify=False: sequences are split into n_folds contiguous blocks.
+    - Prospective: global time cutoff applied uniformly to ALL sequences.
+      - First 2/3 of sequence length (timesteps < floor(2/3 * seq_len)) are train-time.
+      - Last 1/3 of sequence length (timesteps >= floor(2/3 * seq_len)) are eval-time.
+      - Only valid timesteps (where outcomes_mask_3d is True) are considered.
+
+    For fold k (holding out sequences S_k):
+      - Train positions:
+          * sequences in S_train = all_sequences \\ S_k
+          * timesteps in train-time (first 2/3 of sequence length, where valid)
+      - Eval positions (union):
+          * longitudinal eval (fixed across folds):
+              sequences in S_train, timesteps in eval-time (last 1/3 of sequence length, where valid)
+          * within-time OOSS:
+              sequences in S_k, timesteps in train-time (first 2/3 of sequence length, where valid)
+
+    Args:
+        X_3d: (batch_size, seq_len, input_dim) tensor
+        y_3d: (batch_size, seq_len, num_outcomes) tensor
+        outcomes_mask_3d: (batch_size, seq_len, num_outcomes) boolean tensor
+        n_folds: number of CV folds (typically 3)
+        stratify: if True, stratify sequences by outcome mean/std; if False, use contiguous blocks
+
+    Returns:
+        List of length n_folds, each element is a tuple
+        (train_mask_2d, eval_mask_2d, train_mask_2d_unfiltered, eval_mask_2d_unfiltered),
+        all (batch_size, seq_len) boolean tensors.
+        - train_mask_2d, eval_mask_2d: Filtered masks (only valid timesteps)
+        - train_mask_2d_unfiltered, eval_mask_2d_unfiltered: Unfiltered masks (all positions in split)
+    """
+    if X_3d.dim() != 3 or y_3d.dim() != 3 or outcomes_mask_3d.dim() != 3:
+        raise ValueError(
+            f"build_sequence_time_cv_masks expects 3D tensors. "
+            f"Got X_3d={tuple(X_3d.shape)}, y_3d={tuple(y_3d.shape)}, "
+            f"outcomes_mask_3d={tuple(outcomes_mask_3d.shape)}"
+        )
+
+    batch_size, seq_len, _ = X_3d.shape
+
+    # Determine which timesteps have at least one valid outcome
+    # valid_time[s, t] == True means at least one outcome is valid at (s, t)
+    valid_time = outcomes_mask_3d.any(dim=-1)  # (B, T)
+
+    # Assign sequences to folds
+    if stratify:
+        # Compute mean and std per sequence (only on valid timesteps)
+        seq_stats = []
+        for s in range(batch_size):
+            # Get valid timesteps for this sequence
+            vt = valid_time[s]  # (T,)
+            if not vt.any():
+                # No valid outcomes; use dummy stats (will be sorted last)
+                seq_stats.append((float('inf'), float('inf'), s))
+                continue
+            
+            # Extract valid outcomes for this sequence
+            y_seq = y_3d[s, vt]  # (n_valid, num_outcomes)
+            mask_seq = outcomes_mask_3d[s, vt]  # (n_valid, num_outcomes)
+            
+            # For multi-outcome, compute mean/std across all outcomes at valid positions
+            # Flatten to get all valid outcome values
+            valid_outcomes = y_seq[mask_seq].cpu().numpy()
+            
+            if len(valid_outcomes) == 0:
+                seq_stats.append((float('inf'), float('inf'), s))
+                continue
+            
+            mean_val = float(np.mean(valid_outcomes))
+            std_val = float(np.std(valid_outcomes))
+            seq_stats.append((mean_val, std_val, s))
+        
+        # Sort by mean (ascending), breaking ties by std (ascending)
+        # Round means to 4 decimal places for tie-breaking comparison
+        seq_stats_sorted = sorted(
+            seq_stats,
+            key=lambda x: (round(x[0], 4), x[1])
+        )
+        
+        # Round-robin assignment: sorted_index % n_folds
+        seq_fold_assignments = np.zeros(batch_size, dtype=np.int64)
+        for sorted_idx, (_, _, orig_idx) in enumerate(seq_stats_sorted):
+            fold_id = sorted_idx % n_folds
+            seq_fold_assignments[orig_idx] = fold_id
+        
+        # Group sequences by fold
+        seq_folds = []
+        for k in range(n_folds):
+            fold_seqs = np.where(seq_fold_assignments == k)[0]
+            seq_folds.append(fold_seqs)
+    else:
+        # Contiguous blocks (original behavior)
+        seq_indices = np.arange(batch_size)
+        seq_folds = np.array_split(seq_indices, n_folds)
+
+    # Compute global time cutoff: first 2/3 of sequence length are train-time, last 1/3 are eval-time
+    # This is applied uniformly to ALL sequences (not per-sequence)
+    time_cutoff = int(np.floor(2.0 * seq_len / 3.0))
+    if time_cutoff <= 0:
+        time_cutoff = 1  # At least split at position 1
+
+    cv_masks: List[Tuple[torch.Tensor, torch.Tensor]] = []
+
+    for k in range(n_folds):
+        held_out_seqs = seq_folds[k]
+        held_out_mask = torch.zeros(batch_size, dtype=torch.bool)
+        if len(held_out_seqs) > 0:
+            held_out_mask[torch.tensor(held_out_seqs, dtype=torch.long)] = True
+
+        # Train/eval masks over (B, T)
+        train_mask_2d = torch.zeros(batch_size, seq_len, dtype=torch.bool)
+        eval_mask_2d = torch.zeros(batch_size, seq_len, dtype=torch.bool)
+
+        for s in range(batch_size):
+            vt = valid_time[s]  # (T,)
+            
+            if not vt.any():
+                # No valid outcomes in this sequence; skip
+                continue
+
+            # Global time split: timesteps < time_cutoff are train-time, >= time_cutoff are eval-time
+            # But only consider valid timesteps
+            train_time_mask = torch.zeros(seq_len, dtype=torch.bool)
+            eval_time_mask = torch.zeros(seq_len, dtype=torch.bool)
+            train_time_mask[:time_cutoff] = True
+            eval_time_mask[time_cutoff:] = True
+
+            # Apply time split only to valid timesteps
+            train_positions = train_time_mask & vt
+            eval_positions = eval_time_mask & vt
+
+            if not held_out_mask[s]:
+                # Sequence is in-sample for this fold
+                # Train on its train-time timesteps
+                train_mask_2d[s, train_positions] = True
+                # Longitudinal eval on its eval-time timesteps
+                eval_mask_2d[s, eval_positions] = True
+            else:
+                # Sequence is out-of-sample for this fold
+                # Within-time OOSS: eval on its train-time timesteps
+                eval_mask_2d[s, train_positions] = True
+                # (Optionally, could also eval on eval_positions for OOTS+OOSS)
+
+        # Save unfiltered masks for statistics (before filtering by valid_time)
+        train_mask_2d_unfiltered = train_mask_2d.clone()
+        eval_mask_2d_unfiltered = eval_mask_2d.clone()
+        
+        # Ensure we never select invalid-outcome positions
+        train_mask_2d = train_mask_2d & valid_time
+        eval_mask_2d = eval_mask_2d & valid_time
+
+        cv_masks.append((train_mask_2d, eval_mask_2d, train_mask_2d_unfiltered, eval_mask_2d_unfiltered))
+
+    return cv_masks
+
+
+def flatten_with_custom_mask(
+    X_3d: torch.Tensor,
+    y_3d: torch.Tensor,
+    mask_3d: torch.Tensor,
+    position_mask_2d: torch.Tensor,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Flatten 3D tensors to 2D for sklearn, using a custom position mask.
+
+    Args:
+        X_3d: (batch_size, seq_len, input_dim) tensor
+        y_3d: (batch_size, seq_len, num_outcomes) tensor
+        mask_3d: (batch_size, seq_len, num_outcomes) boolean tensor
+        position_mask_2d: (batch_size, seq_len) boolean tensor indicating which
+                          positions to include (before outcome-wise masking).
+
+    Returns:
+        X_2d: (n_selected, input_dim) numpy array
+        y_2d: (n_selected, num_outcomes) numpy array
+    """
+    if (
+        X_3d.dim() != 3
+        or y_3d.dim() != 3
+        or mask_3d.dim() != 3
+        or position_mask_2d.dim() != 2
+    ):
+        raise ValueError(
+            "flatten_with_custom_mask expects X_3d, y_3d, mask_3d to be 3D "
+            "and position_mask_2d to be 2D."
+        )
+
+    batch_size, seq_len, _ = X_3d.shape
+    if position_mask_2d.shape != (batch_size, seq_len):
+        raise ValueError(
+            f"position_mask_2d shape {tuple(position_mask_2d.shape)} is incompatible "
+            f"with X_3d shape {tuple(X_3d.shape)}"
+        )
+
+    # Start from requested positions, then enforce outcome validity
+    base_mask = position_mask_2d & mask_3d.any(dim=-1)  # (B, T)
+    n_selected = base_mask.sum().item()
+
+    if n_selected == 0:
+        # Return empty arrays with correct feature dimensions
+        input_dim = X_3d.shape[-1]
+        num_outcomes = y_3d.shape[-1]
+        return np.empty((0, input_dim)), np.empty((0, num_outcomes))
+
+    X_selected = X_3d[base_mask]  # (n_selected, input_dim)
+    y_selected = y_3d[base_mask]  # (n_selected, num_outcomes)
+
+    return X_selected.cpu().numpy(), y_selected.cpu().numpy()
+
+
 class SklearnModule:
     """
     Wrapper for sklearn models to work with PyTorch dataloaders.
@@ -170,6 +402,9 @@ class SklearnModule:
         """
         self.args = args
         self.model = model
+        self.do_shift = getattr(args, 'do_shift', False)
+        self.interpolation = getattr(args, 'interpolated_output', False)
+        self.processor = TimeShiftProcessor(do_shift=do_shift, interpolation=interpolation)
         
         # Metrics functions (reuse from mi_eval)
         self.metrics_fns = {
@@ -241,6 +476,8 @@ class SklearnModule:
 
         # Let the model decide which features to use
         X_3d, y_3d, mask_3d = self._select_features(batch_dict)
+        print(f"[DEBUG] SklearnModule.fit - After _select_features:")
+        print(f"  X_3d shape: {X_3d.shape}, y_3d shape: {y_3d.shape}, mask_3d shape: {mask_3d.shape}")
 
         # Check for multi-outcome modeling and warn user
         num_outcomes = y_3d.shape[-1]
@@ -258,17 +495,25 @@ class SklearnModule:
             print("     to only include fully valid samples")
             print("="*70 + "\n")
         
+        # When do_shift, train on changes (shifted/diffed labels); metrics and storage use levels
+        y_3d_for_fit = self.processor.shift_labels(y_3d) if self.do_shift else y_3d
+        
         # Reshape for sklearn
-        X_2d, y_2d, valid_indices = reshape_for_sklearn(X_3d, y_3d, mask_3d)
+        print(f"[DEBUG] SklearnModule.fit - Before reshape_for_sklearn")
+        X_2d, y_2d, valid_indices = reshape_for_sklearn(X_3d, y_3d_for_fit, mask_3d)
         
         print(f"Training on {X_2d.shape[0]} valid samples...")
+        print(f"[DEBUG] SklearnModule.fit - Final shapes for sklearn:")
+        print(f"  X_2d shape: {X_2d.shape}, y_2d shape: {y_2d.shape}")
         
         # Fit sklearn model
         self.model.fit(X_2d, y_2d)
         
-        # Compute training metrics
+        # Compute training metrics (predictions are changes when do_shift; reshift to levels for metrics/storage)
         train_preds_2d = self.model.predict(X_2d)
         train_preds_3d = reconstruct_from_sklearn(train_preds_2d, y_3d.shape, valid_indices, mask_3d)
+        if self.do_shift:
+            train_preds_3d = self.processor.reshift_labels(train_preds_3d, y_3d, mask_3d)
 
         # Metadata from batch_dict
         seq_ids = batch_dict.get('seq_id', batch_dict.get('seq_idx', None))
@@ -276,7 +521,7 @@ class SklearnModule:
         oots_mask = batch_dict.get('oots_mask', None)
         ooss_mask = batch_dict.get('ooss_mask', None)
         
-        # Store predictions
+        # Store predictions (level-scale)
         self.predictions['train'] = {
             'preds': train_preds_3d,
             'outcomes': y_3d,
@@ -317,22 +562,30 @@ class SklearnModule:
 
         # Let the model decide which features to use
         X_3d, y_3d, mask_3d = self._select_features(batch_dict)
+        print(f"[DEBUG] SklearnModule.evaluate - After _select_features:")
+        print(f"  X_3d shape: {X_3d.shape}, y_3d shape: {y_3d.shape}, mask_3d shape: {mask_3d.shape}")
 
         # Reshape for sklearn
+        print(f"[DEBUG] SklearnModule.evaluate - Before reshape_for_sklearn")
         X_2d, y_2d, valid_indices = reshape_for_sklearn(X_3d, y_3d, mask_3d)
         
         print(f"Evaluating on {X_2d.shape[0]} valid samples...")
+        print(f"[DEBUG] SklearnModule.evaluate - Final shapes for sklearn:")
+        print(f"  X_2d shape: {X_2d.shape}, y_2d shape: {y_2d.shape}")
         
-        # Predict
+        # Predict (model outputs changes when do_shift; reshift to levels for metrics/storage)
         preds_2d = self.model.predict(X_2d)
         preds_3d = reconstruct_from_sklearn(preds_2d, y_3d.shape, valid_indices, mask_3d)
+        # do_shift = getattr(self.args, 'do_shift', False)
+        if self.do_shift:
+            preds_3d = self.processor.reshift_labels(preds_3d, y_3d, mask_3d)
 
         seq_ids = batch_dict.get('seq_id', batch_dict.get('seq_idx', None))
         time_ids = batch_dict.get('time_ids', None)
         oots_mask = batch_dict.get('oots_mask', None)
         ooss_mask = batch_dict.get('ooss_mask', None)
         
-        # Store predictions
+        # Store predictions (level-scale)
         self.predictions[split] = {
             'preds': preds_3d,
             'outcomes': y_3d,
@@ -352,6 +605,9 @@ class SklearnModule:
     def predict(self, dataloader):
         """
         Make predictions without computing metrics (no labels needed).
+        When do_shift is True and labels are present, returned predictions
+        are on the level scale (reshifted). When do_shift is True and labels
+        are absent, returned predictions are change predictions (raw).
         
         Args:
             dataloader: PyTorch DataLoader
@@ -407,6 +663,8 @@ class SklearnModule:
             valid_indices,
             mask if mask is not None else torch.ones(original_shape),
         )
+        if self.do_shift and y is not None and mask is not None:
+            preds_3d = self.processor.reshift_labels(preds_3d, y, mask)
         
         return {
             'preds': preds_3d,
@@ -588,6 +846,60 @@ class SklearnModule:
         return all_metrics
 
 
+def print_split_statistics(X_3d: torch.Tensor, y_3d: torch.Tensor, mask_3d: torch.Tensor, split_name: str = 'train'):
+    """
+    Print diagnostic statistics for a data split.
+    
+    Args:
+        X_3d: (batch_size, seq_len, input_dim) tensor
+        y_3d: (batch_size, seq_len, num_outcomes) tensor
+        mask_3d: (batch_size, seq_len, num_outcomes) boolean tensor
+        split_name: Name of the split (e.g., 'train', 'test', 'val')
+    """
+    batch_size = X_3d.shape[0]
+    seq_len = X_3d.shape[1]
+    
+    # Determine which timesteps have at least one valid outcome
+    valid_time = mask_3d.any(dim=-1)  # (B, T)
+    sequences_with_valid_time = valid_time.any(dim=1).sum().item()
+    
+    # Count total positions (seq-timesteps)
+    total_positions = batch_size * seq_len
+    
+    # Count valid positions (valid seq-timesteps)
+    valid_positions = valid_time.sum().item()
+    
+    # Extract all valid outcome values
+    valid_outcomes_list = []
+    for s in range(batch_size):
+        for t in range(seq_len):
+            if valid_time[s, t]:
+                # This position has at least one valid outcome
+                # Extract all valid outcomes at this position
+                for o in range(y_3d.shape[2]):
+                    if mask_3d[s, t, o]:
+                        valid_outcomes_list.append(float(y_3d[s, t, o].item()))
+    
+    if len(valid_outcomes_list) == 0:
+        mean_outcome = float('nan')
+        std_outcome = float('nan')
+    else:
+        valid_outcomes_array = np.array(valid_outcomes_list)
+        mean_outcome = float(np.mean(valid_outcomes_array))
+        std_outcome = float(np.std(valid_outcomes_array))
+    
+    print("\n" + "=" * 60)
+    print(f"{split_name.capitalize()} Split Statistics:")
+    print("=" * 60)
+    print(f"Total sequences: {batch_size}")
+    print(f"Sequences with at least one valid timestep: {sequences_with_valid_time}")
+    print(f"Total positions: {total_positions}")
+    print(f"Valid positions: {valid_positions}")
+    print(f"Mean outcome: {mean_outcome:.4f}")
+    print(f"Std outcome: {std_outcome:.4f}")
+    print("=" * 60 + "\n")
+
+
 class SklearnTrainer:
     """
     Trainer class for sklearn models, similar to PyTorch Lightning's Trainer.
@@ -626,6 +938,11 @@ class SklearnTrainer:
         print("Training...")
         print("=" * 60)
         
+        # Print train split statistics
+        train_batch_dict = collect_batch_dict(train_dataloader)
+        X_train_3d, y_train_3d, mask_train_3d = module._select_features(train_batch_dict)
+        print_split_statistics(X_train_3d, y_train_3d, mask_train_3d, split_name='train')
+        
         # Train
         train_metrics = module.fit(train_dataloader)
         
@@ -662,6 +979,11 @@ class SklearnTrainer:
         print("Validating...")
         print("=" * 60)
         
+        # Print validation split statistics
+        val_batch_dict = collect_batch_dict(val_dataloader)
+        X_val_3d, y_val_3d, mask_val_3d = module._select_features(val_batch_dict)
+        print_split_statistics(X_val_3d, y_val_3d, mask_val_3d, split_name='val')
+        
         val_metrics = module.evaluate(val_dataloader, split='val')
         
         # Log validation metrics (skip default values of -1.0 or -2.0)
@@ -688,6 +1010,11 @@ class SklearnTrainer:
         print("=" * 60)
         print("Testing...")
         print("=" * 60)
+        
+        # Print test split statistics
+        test_batch_dict = collect_batch_dict(test_dataloader)
+        X_test_3d, y_test_3d, mask_test_3d = module._select_features(test_batch_dict)
+        print_split_statistics(X_test_3d, y_test_3d, mask_test_3d, split_name='test')
         
         test_metrics = module.evaluate(test_dataloader, split='test')
         
@@ -721,9 +1048,27 @@ class SklearnTrainer:
         return predictions
     
     def hyperparameter_search(self, module, param_grid, train_dataloader, 
-                             val_dataloader, search_type='grid', n_iter=10, cv=3):
+                             val_dataloader, search_type='grid', n_iter=10, cv=3, stratify=True):
         """
-        Perform hyperparameter search using GridSearchCV or RandomizedSearchCV.
+        Perform hyperparameter search using a custom sequence- and time-aware CV.
+
+        Cross-sectional + prospective CV:
+          - Sequences (documents) are split into `cv` folds.
+            - If stratify=True: sequences are stratified by outcome mean/std (computed
+              only on valid timesteps), then assigned using round-robin.
+            - If stratify=False: sequences are split into `cv` contiguous blocks.
+          - Global time cutoff: first 2/3 of sequence length are train-time,
+            last 1/3 are eval-time (applied uniformly to ALL sequences).
+            Only valid timesteps (where outcomes_mask is True) are considered.
+          - For fold k (holding out sequences S_k):
+              * Train:
+                  - sequences in S_train = all_sequences \\ S_k
+                  - timesteps in train-time (first 2/3 of sequence length, where valid)
+              * Eval (union):
+                  - longitudinal eval (fixed across folds):
+                        sequences in S_train, timesteps in eval-time (last 1/3 of sequence length, where valid)
+                  - within-time OOSS:
+                        sequences in S_k, timesteps in train-time (first 2/3 of sequence length, where valid)
         
         Args:
             module: SklearnModule instance (will be cloned)
@@ -733,70 +1078,300 @@ class SklearnTrainer:
             search_type: 'grid' or 'random'
             n_iter: Number of iterations for random search
             cv: Number of cross-validation folds
+            stratify: If True, stratify sequences by outcome mean/std; if False, use contiguous blocks
             
         Returns:
             SklearnModule with best model
         """
         print("=" * 60)
-        print(f"Hyperparameter search ({search_type})...")
+        stratify_str = "stratified" if stratify else "contiguous"
+        print(f"Hyperparameter search ({search_type}) with custom sequence/time CV ({stratify_str})...")
         print("=" * 60)
         
-        # Extract training data
-        X_train, y_train, mask_train, _, _, _, _ = extract_data_from_dataloader(train_dataloader)
-        X_train_2d, y_train_2d, _ = reshape_for_sklearn(X_train, y_train, mask_train)
+        # Extract training data using adapter pattern
+        train_batch_dict = collect_batch_dict(train_dataloader)
+        X_train_3d, y_train_3d, mask_train_3d = module._select_features(train_batch_dict)
+        y_train_3d_for_fit = module.processor.shift_labels(y_train_3d) if module.do_shift else y_train_3d
+
+        # Build custom CV masks over sequences and time
+        cv_masks = build_sequence_time_cv_masks(
+            X_train_3d, y_train_3d, outcomes_mask_3d=mask_train_3d, n_folds=cv, stratify=stratify
+        )
+
+        # Print fold statistics for debugging stratification
+        print("\n" + "=" * 60)
+        print("Fold Statistics (before hyperparameter search):")
+        print("=" * 60)
         
-        # Extract validation data for final evaluation
-        X_val, y_val, mask_val, seq_ids_val, time_ids_val, oots_val, ooss_val = extract_data_from_dataloader(val_dataloader)
-        X_val_2d, y_val_2d, valid_indices_val = reshape_for_sklearn(X_val, y_val, mask_val)
+        # First, get overall statistics
+        batch_size = y_train_3d.shape[0]
         
-        # Create search object
+        # Debug: Check mask structure
+        print(f"[DEBUG] Mask shape: {mask_train_3d.shape}")
+        print(f"[DEBUG] Mask dtype: {mask_train_3d.dtype}")
+        print(f"[DEBUG] Mask sum (total True values): {mask_train_3d.sum().item()}")
+        print(f"[DEBUG] Mask any per timestep shape: {mask_train_3d.any(dim=-1).shape}")
+        
+        valid_time = mask_train_3d.any(dim=-1)  # (B, T)
+        sequences_with_valid_time = valid_time.any(dim=1).sum().item()
+        
+        # Also check if sequences have any data at all (check pad_mask if available)
+        if 'pad_mask' in train_batch_dict:
+            pad_mask = train_batch_dict['pad_mask']  # (B, T)
+            sequences_with_data = pad_mask.any(dim=1).sum().item()
+            print(f"[DEBUG] Sequences with any data (from pad_mask): {sequences_with_data}")
+            print(f"[DEBUG] pad_mask shape: {pad_mask.shape}, dtype: {pad_mask.dtype}")
+        
+        print(f"Total sequences in dataset: {batch_size}")
+        print(f"Sequences with at least one valid timestep (from outcomes_mask): {sequences_with_valid_time}\n")
+        
+        for fold_idx, (train_mask_2d, eval_mask_2d, train_mask_2d_unfiltered, eval_mask_2d_unfiltered) in enumerate(cv_masks):
+            # Extract valid outcomes in eval set
+            # Use same logic as flatten_with_custom_mask: position_mask & outcome validity
+            base_mask = eval_mask_2d & mask_train_3d.any(dim=-1)  # (B, T)
+            
+            # Count total positions in eval set (including invalid ones) - use unfiltered mask
+            total_n = eval_mask_2d_unfiltered.numel()
+            
+            # Count sequences that have at least one position in eval set
+            sequences_in_eval = (eval_mask_2d.any(dim=1)).sum().item()
+            
+            # Count sequences with valid timesteps but no eval positions
+            sequences_with_eval = eval_mask_2d.any(dim=1)  # (B,)
+            sequences_missing_eval = (valid_time.any(dim=1) & ~sequences_with_eval).sum().item()
+            
+            # Count sequences with no valid timesteps at all
+            sequences_no_valid_time = (~valid_time.any(dim=1)).sum().item()
+            
+            # Count sequences that are fully held out for eval (have eval positions but no train positions)
+            # These are the sequences in the held-out fold (OOSS evaluation)
+            sequences_with_train = train_mask_2d.any(dim=1)  # (B,)
+            sequences_held_out = (sequences_with_eval & ~sequences_with_train).sum().item()
+            
+            # Extract all valid outcome values from eval set
+            valid_outcomes_list = []
+            for s in range(y_train_3d.shape[0]):
+                for t in range(y_train_3d.shape[1]):
+                    if base_mask[s, t]:
+                        # This position is in eval set and has at least one valid outcome
+                        # Extract all valid outcomes at this position
+                        for o in range(y_train_3d.shape[2]):
+                            if mask_train_3d[s, t, o]:
+                                valid_outcomes_list.append(float(y_train_3d[s, t, o].item()))
+            
+            if len(valid_outcomes_list) == 0:
+                mean_val = float('nan')
+                std_val = float('nan')
+                valid_n = 0
+            else:
+                valid_outcomes_array = np.array(valid_outcomes_list)
+                mean_val = float(np.mean(valid_outcomes_array))
+                std_val = float(np.std(valid_outcomes_array))
+                valid_n = len(valid_outcomes_list)
+            
+            print(f"Fold {fold_idx + 1}/{len(cv_masks)}:")
+            print(f"  Sequences in eval set: {sequences_in_eval}")
+            print(f"  Sequences fully held out for eval (OOSS): {sequences_held_out}")
+            print(f"  Sequences with valid time but missing from eval: {sequences_missing_eval}")
+            print(f"  Sequences with no valid timesteps: {sequences_no_valid_time}")
+            print(f"  Total N: {total_n} positions")
+            print(f"  Valid N: {valid_n} valid samples")
+            print(f"  Mean PCL score: {mean_val:.4f}")
+            print(f"  Std PCL score: {std_val:.4f}")
+        print("=" * 60 + "\n")
+
+        # Prepare hyperparameter combinations
         if search_type == 'grid':
-            search = GridSearchCV(
-                module.model, 
-                param_grid, 
-                cv=cv,
-                scoring='neg_mean_squared_error',
-                verbose=2,
-                n_jobs=-1
-            )
+            param_iterable = list(ParameterGrid(param_grid))
         elif search_type == 'random':
-            search = RandomizedSearchCV(
-                module.model,
-                param_grid,
-                n_iter=n_iter,
-                cv=cv,
-                scoring='neg_mean_squared_error',
-                verbose=2,
-                n_jobs=-1,
-                random_state=getattr(module.args, 'seed', 42)
+            param_iterable = list(
+                ParameterSampler(
+                    param_distributions=param_grid,
+                    n_iter=n_iter,
+                    random_state=getattr(module.args, 'seed', 42),
+                )
             )
         else:
             raise ValueError(f"Invalid search_type: {search_type}. Use 'grid' or 'random'.")
-        
-        # Perform search
-        print(f"Searching over {len(param_grid)} parameters...")
-        search.fit(X_train_2d, y_train_2d)
-        
-        print(f"Best parameters: {search.best_params_}")
-        print(f"Best CV score: {-search.best_score_:.4f}")
-        
+
+        print(f"Searching over {len(param_iterable)} hyperparameter combinations...")
+
+        # Track best params per fold (for mode-based selection)
+        fold_best_params: List[Optional[Dict[str, Any]]] = [None] * len(cv_masks)
+        fold_best_mses: List[Optional[float]] = [None] * len(cv_masks)
+
+        # Loop over hyperparameter combinations
+        for combo_idx, params in enumerate(param_iterable):
+            print(f"\n--- Hyperparameter set {combo_idx + 1}/{len(param_iterable)}: {params} ---")
+
+            # Cross-validation over folds
+            for fold_idx, (train_mask_2d, eval_mask_2d, _, _) in enumerate(cv_masks):
+                print(f"  Fold {fold_idx + 1}/{len(cv_masks)}")
+
+                # Train on changes when do_shift; eval targets stay levels
+                X_train_2d, y_train_2d = flatten_with_custom_mask(
+                    X_train_3d, y_train_3d_for_fit, mask_train_3d, train_mask_2d
+                )
+                X_eval_2d, y_eval_2d = flatten_with_custom_mask(
+                    X_train_3d, y_train_3d, mask_train_3d, eval_mask_2d
+                )
+
+                if X_train_2d.shape[0] == 0 or X_eval_2d.shape[0] == 0:
+                    print("    Skipping fold due to empty train/eval set.")
+                    continue
+
+                # Clone base model and set hyperparameters
+                model = deepcopy(module.model)
+                if params:
+                    model.set_params(**params)
+
+                # Fit and evaluate
+                model.fit(X_train_2d, y_train_2d)
+                preds_eval = model.predict(X_eval_2d)
+                # Ensure 2D for comparison
+                preds_eval = np.asarray(preds_eval)
+                if preds_eval.ndim == 1:
+                    preds_eval = preds_eval.reshape(-1, 1)
+
+                if module.do_shift:
+                    # Model predicts changes; reshift to levels before MSE vs y_eval_2d (levels)
+                    base_mask = eval_mask_2d & mask_train_3d.any(dim=-1)
+                    preds_eval_3d = torch.zeros_like(y_train_3d)
+                    preds_eval_3d[base_mask] = torch.from_numpy(preds_eval).to(
+                        device=y_train_3d.device, dtype=y_train_3d.dtype
+                    )
+                    preds_eval_3d = module.processor.reshift_labels(preds_eval_3d, y_train_3d, mask_train_3d)
+                    preds_eval_levels = preds_eval_3d[base_mask].cpu().numpy()
+                    mse = np.mean((preds_eval_levels - y_eval_2d) ** 2)
+                else:
+                    mse = np.mean((preds_eval - y_eval_2d) ** 2)
+                print(f"    Fold {fold_idx + 1} MSE: {mse:.6f}")
+
+                # Update best params for this fold if MSE improved
+                if fold_best_mses[fold_idx] is None or mse < fold_best_mses[fold_idx]:
+                    fold_best_mses[fold_idx] = mse
+                    fold_best_params[fold_idx] = params.copy()
+                    print(f"    -> New best for fold {fold_idx + 1}")
+
+        # Filter out folds that had no valid evaluations
+        valid_fold_indices = [i for i in range(len(fold_best_params)) if fold_best_params[i] is not None]
+        if not valid_fold_indices:
+            raise RuntimeError("Hyperparameter search failed: no valid hyperparameter set found.")
+
+        # Extract alpha values from best params for each fold
+        fold_best_alphas = []
+        for fold_idx in valid_fold_indices:
+            alpha = fold_best_params[fold_idx].get('alpha', None)
+            if alpha is not None:
+                fold_best_alphas.append(alpha)
+
+        if not fold_best_alphas:
+            # No alpha found, fall back to using first fold's best params
+            print("Warning: No 'alpha' parameter found. Using first valid fold's best params.")
+            best_params = fold_best_params[valid_fold_indices[0]].copy()
+            best_cv_mse = float(np.mean([fold_best_mses[i] for i in valid_fold_indices]))
+        else:
+            # Find mode alpha (most frequent across folds)
+            from collections import Counter
+            alpha_counts = Counter(fold_best_alphas)
+            max_count = max(alpha_counts.values())
+            mode_alphas = [alpha for alpha, count in alpha_counts.items() if count == max_count]
+
+            if len(mode_alphas) == 1:
+                # Unique mode
+                best_alpha = mode_alphas[0]
+            else:
+                # Tie: pick highest alpha (most regularization)
+                best_alpha = max(mode_alphas)
+                print(f"  Tie in mode alpha selection: {mode_alphas}. Choosing highest: {best_alpha}")
+
+            # Find the params dict that matches best_alpha
+            best_params = None
+            for fold_idx in valid_fold_indices:
+                if fold_best_params[fold_idx].get('alpha') == best_alpha:
+                    best_params = fold_best_params[fold_idx].copy()
+                    break
+
+            if best_params is None:
+                # Fallback: use first fold's best params
+                print("Warning: Could not find params matching mode alpha. Using first valid fold's best params.")
+                best_params = fold_best_params[valid_fold_indices[0]].copy()
+
+            # Compute mean MSE across all folds for logging
+            best_cv_mse = float(np.mean([fold_best_mses[i] for i in valid_fold_indices]))
+
+        print(f"\nBest parameters (mode alpha across folds): {best_params}")
+        print(f"Best alpha: {best_params.get('alpha', 'N/A')}")
+        print(f"Mean CV MSE across folds: {best_cv_mse:.4f}")
+        if fold_best_alphas:
+            print(f"Fold-wise best alphas: {fold_best_alphas}")
+
         # Log best parameters
         if self.logger:
-            self.logger.log_hyperparams(search.best_params_)
-            self.logger.log_metrics({'cv_best_mse': -search.best_score_}, step=0)
+            self.logger.log_hyperparams(best_params)
+            self.logger.log_metrics({'cv_best_mse': best_cv_mse}, step=0)
+
+        # ---- Refit best model on full training data (first 2/3 timesteps per sequence) ----
+        batch_size, seq_len, _ = X_train_3d.shape
+        valid_time = mask_train_3d.any(dim=-1)  # (B, T)
+        full_train_mask_2d = torch.zeros(batch_size, seq_len, dtype=torch.bool)
+
+        for s in range(batch_size):
+            vt = valid_time[s]
+            valid_positions = torch.nonzero(vt, as_tuple=False).squeeze(-1)
+            n_valid = valid_positions.numel()
+            if n_valid == 0:
+                continue
+            cut = int(np.floor(2.0 * n_valid / 3.0))
+            if cut <= 0:
+                # If no train-time positions, skip this sequence for training
+                continue
+            train_positions = valid_positions[:cut]
+            full_train_mask_2d[s, train_positions] = True
+
+        full_train_mask_2d = full_train_mask_2d & valid_time
+
+        X_full_train_2d, y_full_train_2d = flatten_with_custom_mask(
+            X_train_3d, y_train_3d_for_fit, mask_train_3d, full_train_mask_2d
+        )
+
+        if X_full_train_2d.shape[0] == 0:
+            raise RuntimeError("No valid training samples found when refitting best model.")
+
+        best_estimator = deepcopy(module.model)
+        if best_params:
+            best_estimator.set_params(**best_params)
+        best_estimator.fit(X_full_train_2d, y_full_train_2d)
+
+        # Extract validation data for final evaluation using adapter pattern
+        val_batch_dict = collect_batch_dict(val_dataloader)
+        X_val_3d, y_val_3d, mask_val_3d = module._select_features(val_batch_dict)
+        X_val_2d, y_val_2d, valid_indices_val = reshape_for_sklearn(
+            X_val_3d, y_val_3d, mask_val_3d
+        )
         
+        # Extract additional metadata from validation batch dict
+        seq_ids_val = val_batch_dict.get('seq_id', val_batch_dict.get('seq_idx', None))
+        time_ids_val = val_batch_dict.get('time_ids', None)
+        oots_val = val_batch_dict.get('oots_mask', None)
+        ooss_val = val_batch_dict.get('ooss_mask', None)
+
         # Create new module with best model
-        best_module = SklearnModule(module.args, search.best_estimator_)
+        best_module = SklearnModule(module.args, best_estimator)
+
+        # Evaluate on validation set (model outputs changes when do_shift; reshift to levels for metrics/storage)
+        val_preds_2d = best_estimator.predict(X_val_2d)
+        val_preds_3d = reconstruct_from_sklearn(
+            val_preds_2d, y_val_3d.shape, valid_indices_val, mask_val_3d
+        )
+        if module.do_shift:
+            val_preds_3d = best_module.processor.reshift_labels(val_preds_3d, y_val_3d, mask_val_3d)
         
-        # Evaluate on validation set
-        val_preds_2d = search.best_estimator_.predict(X_val_2d)
-        val_preds_3d = reconstruct_from_sklearn(val_preds_2d, y_val.shape, valid_indices_val, mask_val)
-        
-        # Store predictions
+        # Store predictions (level-scale)
         best_module.predictions['val'] = {
             'preds': val_preds_3d,
-            'outcomes': y_val,
-            'outcomes_mask': mask_val,
+            'outcomes': y_val_3d,
+            'outcomes_mask': mask_val_3d,
             'seq_id': seq_ids_val,
             'time_ids': time_ids_val,
             'oots_mask': oots_val,
@@ -804,7 +1379,9 @@ class SklearnTrainer:
         }
         
         # Compute validation metrics (exhaustive)
-        val_metrics = best_module.compute_exhaustive_metrics(val_preds_3d, y_val, mask_val, oots_val, ooss_val)
+        val_metrics = best_module.compute_exhaustive_metrics(
+            val_preds_3d, y_val_3d, mask_val_3d, oots_val, ooss_val
+        )
         best_module.metrics['val'] = val_metrics
         
         print(f"Validation metrics with best model: {val_metrics}")

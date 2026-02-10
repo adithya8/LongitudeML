@@ -7,10 +7,14 @@ from .mi_args import get_data_args, get_model_args, get_training_args, get_defau
 
 from .mi_utils import get_logger
 from .dlatk_datapipeline import DLATKDataGetter
-from .mi_eval import mi_mse, mi_smape, mi_pearsonr
-from .sklearn_trainer import SklearnModule, SklearnTrainer
+from .mi_eval import mi_mse, mi_smape, mi_pearsonr, mi_mae
+from .sklearn_trainer import (
+    SklearnModule, SklearnTrainer,
+    collect_batch_dict, reshape_for_sklearn, reconstruct_from_sklearn
+)
 from .mi_sklearn_model import (
     RidgeForecastModel, LassoForecastModel,
-    AutoRegressiveSklearnBase, AutoRegressiveRidge, AutoRegressiveLasso
+    AutoRegressiveSklearnBase, AutoRegressiveRidge, AutoRegressiveLasso,
+    BoESklearnBase, BoERidge
 )
 ## TODO: Think about the eval script and functions
