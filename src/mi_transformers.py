@@ -229,7 +229,18 @@ class MultiHeadedSelfAttention(nn.Module):
         
         if attn_mask is not None:
             attn_weights = attn_weights + attn_mask
+        
+        # Detect rows that are entirely -inf before softmax
+        # Shape: (batch_size, num_heads, seq_len, seq_len)
+        # Check if entire rows (last dim) are all -inf
+        all_neg_inf_mask = torch.isinf(attn_weights) & (attn_weights < 0)
+        all_neg_inf_rows = torch.all(all_neg_inf_mask, dim=-1, keepdim=True)  # (batch_size, num_heads, seq_len, 1)
+        
         attn = self.sm(attn_weights)
+        
+        # Set rows that were entirely -inf to 0 after softmax
+        # This handles the case where softmax would produce nan for all-inf rows
+        attn = torch.where(all_neg_inf_rows, torch.zeros_like(attn), attn)
         
         attn = self.attn_dropout(attn)
         out = (attn @ v).transpose(1, 2).reshape(bsz, seq_len, -1)#[..., :self.dim]  # Remove padding if added
